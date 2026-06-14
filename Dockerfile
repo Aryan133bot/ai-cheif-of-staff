@@ -8,16 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
-COPY dashboard/requirements.txt /app/dashboard/requirements.txt
-COPY email\ processor/requirements.txt /app/email_processor/requirements.txt
+COPY ["dashboard/requirements.txt", "/app/dashboard/requirements.txt"]
+COPY ["email processor/requirements.txt", "/app/email_processor/requirements.txt"]
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r /app/dashboard/requirements.txt \
     && pip install --no-cache-dir -r /app/email_processor/requirements.txt
 
 # Copy application code
-COPY dashboard/ /app/dashboard/
-COPY email\ processor/ /app/email_processor/
+COPY ["dashboard/", "/app/dashboard/"]
+COPY ["email processor/", "/app/email_processor/"]
 
 # Rename directory to remove space (avoids path issues in Linux)
 # The server.py references "../email processor" so we create a symlink
