@@ -1,0 +1,12 @@
+# Secret keys — never upload these
+.env
+credentials.json
+gmail_token.json
+
+# Python virtual environment — too large to share
+venv/
+__pycache__/
+*.pyc
+
+# VS Code settings
+.vscode/

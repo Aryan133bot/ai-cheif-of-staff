@@ -1,0 +1,16 @@
+[
+  {
+    "email_id": "m-001",
+    "subject": "Proposal update needed",
+    "sender": "client@example.com",
+    "received_at": "2026-05-07T11:00:00",
+    "body": "Hi, please send the revised proposal by Friday. Also share the commercials this week."
+  },
+  {
+    "email_id": "m-002",
+    "subject": "Invoice follow-up",
+    "sender": "finance@vendor.com",
+    "received_at": "2026-05-07T13:30:00",
+    "body": "Reminder: invoice INV-209 is due tomorrow. Please confirm payment timeline."
+  }
+]

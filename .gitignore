@@ -1,0 +1,33 @@
+# Environment files (contain API keys and secrets)
+.env
+email processor/.env
+
+# Virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# SQLite databases
+*.db
+
+# Gmail OAuth tokens and credentials
+gmail_token.json
+credentials.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gemini agent data
+.gemini/
