@@ -508,7 +508,7 @@ def process_emails(user: dict = Depends(get_current_user)):
 @app.get("/api/emails/status")
 def email_status(user: dict = Depends(get_current_user)):
     """Get current email processing status and provider info."""
-    svc = get_email_service()
+    svc = get_email_service(user["id"])
     if not svc:
         return {
             "providers": [],
@@ -525,7 +525,7 @@ def email_status(user: dict = Depends(get_current_user)):
 @app.get("/api/emails/history")
 def email_history(limit: int = Query(default=20, le=100), user: dict = Depends(get_current_user)):
     """Get recent email processing run history."""
-    svc = get_email_service()
+    svc = get_email_service(user["id"])
     if not svc:
         return []
     return svc.get_history(limit=limit)
