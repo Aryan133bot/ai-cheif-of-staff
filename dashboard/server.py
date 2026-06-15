@@ -224,21 +224,38 @@ class ApproveReplyBody(BaseModel):
 
 
 # ─── Auth endpoints (no auth required) ──────────────────────────────────────
+@app.get("/api/dev/reset-db")
+def dev_reset_db():
+    """Temporary endpoint to wipe the DB file on Render"""
+    try:
+        import os
+        import db
+        
+        # Close all connections in the pool if possible (sqlite doesn't strictly need this, but good practice)
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        
+        # Reinitialize
+        db.init_db(DB_PATH)
+        return {"ok": True, "message": "Database successfully wiped and recreated!"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 
 @app.get("/api/auth/status")
 def auth_status():
     """Check if any account exists — tells frontend to show setup or login."""
-    return {"has_account": has_any_account(DB_PATH)}
+    return {"has_account": True}  # Always return True so the UI shows Login instead of Setup
 
 
 @app.post("/api/auth/register")
 def register(body: RegisterBody):
-    """Create a new account. Only works if no account exists yet."""
-    if has_any_account(DB_PATH):
-        raise HTTPException(status_code=403, detail="An account already exists. Use login instead.")
+    """Create a new user account."""
     try:
         user = create_account(DB_PATH, body.name, body.email, body.password)
-        return {"ok": True, "user": user}
+        from auth import create_token
+        token = create_token(user["id"], user["email"], user["name"])
+        return {"ok": True, "token": token, "user": user}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
