@@ -13,8 +13,8 @@ def get_connection(db_path: str):
     url = os.environ.get("DATABASE_URL")
     if url:
         import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        from psycopg2.extras import DictCursor
+        conn = psycopg2.connect(url, cursor_factory=DictCursor)
         return PgConnection(conn)
     else:
         conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
@@ -81,16 +81,16 @@ class PgCursor:
         
     def fetchone(self):
         try:
-            row = self.cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
+            return self.cursor.fetchone()
         except Exception:
             return None
             
     def fetchall(self):
         try:
-            rows = self.cursor.fetchall()
-            return [dict(r) for r in rows]
+            return self.cursor.fetchall()
         except Exception:
             return []
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
