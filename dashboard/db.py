@@ -38,8 +38,33 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
     """Create all tables if they don't exist. Safe to call on every startup."""
     conn = get_db(db_path)
     try:
-        # Existing tasks table is created by email processor's task_engine.py.
-        # We only add new tables here.
+        # Create the tasks table to prevent dashboard crashes on an empty DB
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT UNIQUE NOT NULL,
+                title TEXT NOT NULL,
+                deadline_type TEXT NOT NULL,
+                urgency TEXT NOT NULL,
+                source_quote TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                deadline_date TEXT,
+                assigned_to TEXT,
+                counterparty TEXT,
+                action_needed TEXT,
+                review_required INTEGER NOT NULL DEFAULT 0,
+                source_email_id TEXT NOT NULL,
+                source_subject TEXT NOT NULL,
+                source_sender TEXT NOT NULL,
+                received_at TEXT NOT NULL,
+                priority REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'created',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
 
         conn.execute(
             """
