@@ -41,7 +41,7 @@
                 <div class="auth-error" id="setup-error" style="display:none;"></div>
                 <button type="submit" class="btn btn-primary btn-full" id="setup-btn">Create Account</button>
                 <div style="text-align: center; margin-top: 1rem;">
-                    <a href="#" onclick="toggleAuth('login')" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Already have an account? Sign In</a>
+                    <a href="#" onclick="toggleAuth('login'); return false;" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Already have an account? Sign In</a>
                 </div>
             </form>
 
@@ -60,7 +60,7 @@
                 <div class="auth-error" id="login-error" style="display:none;"></div>
                 <button type="submit" class="btn btn-primary btn-full" id="login-btn">Sign In</button>
                 <div style="text-align: center; margin-top: 1rem;">
-                    <a href="#" onclick="toggleAuth('setup')" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Don't have an account? Create one</a>
+                    <a href="#" onclick="toggleAuth('setup'); return false;" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Don't have an account? Create one</a>
                 </div>
             </form>
         </div>
