@@ -36,6 +36,20 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
     """Create all tables if they don't exist. Safe to call on every startup."""
     conn = get_db(db_path)
     try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL,
+                email      TEXT    NOT NULL UNIQUE,
+                password   TEXT    NOT NULL,
+                gmail_token TEXT,
+                created_at TEXT    NOT NULL,
+                last_login TEXT
+            )
+            """
+        )
+
         # Create the tasks table to prevent dashboard crashes on an empty DB
         conn.execute(
             """
@@ -113,20 +127,6 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 user_id               INTEGER NOT NULL,
                 FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-            """
-        )
-
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                name       TEXT    NOT NULL,
-                email      TEXT    NOT NULL UNIQUE,
-                password   TEXT    NOT NULL,
-                gmail_token TEXT,
-                created_at TEXT    NOT NULL,
-                last_login TEXT
             )
             """
         )
