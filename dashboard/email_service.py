@@ -25,16 +25,17 @@ AUTO_REPLY_DRAFT = os.getenv("AUTO_REPLY_DRAFT", "1").strip().lower() in ("1", "
 class EmailService:
     """Bridges email providers with the classification pipeline."""
 
-    def __init__(self, db_path: str, registry: ProviderRegistry):
+    def __init__(self, db_path: str, registry: ProviderRegistry, user_id: int):
         self.db_path = db_path
         self.registry = registry
+        self.user_id = user_id
         self._processor = None
 
     def _ensure_processor(self):
         """Lazily initialise the email processor."""
         if self._processor is None:
             from processor import EmailProcessor
-            self._processor = EmailProcessor(self.db_path)
+            self._processor = EmailProcessor(self.db_path, self.user_id)
 
     def process_new_emails(
         self,
@@ -46,7 +47,7 @@ class EmailService:
 
         Returns a summary dict with counts and any errors.
         """
-        run_id = db.create_processing_run(self.db_path, trigger=trigger)
+        run_id = db.create_processing_run(self.db_path, trigger=trigger, user_id=self.user_id)
 
         try:
             # Fetch from all connected providers
@@ -57,6 +58,7 @@ class EmailService:
                 db.complete_processing_run(
                     self.db_path, run_id,
                     emails_fetched=0, status="completed",
+                    user_id=self.user_id,
                 )
                 return {
                     "ok": True,

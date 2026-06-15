@@ -15,9 +15,10 @@ def _normalize(value: str | None) -> str:
     return " ".join(value.lower().strip().split())
 
 
-def build_fingerprint(deadline: ExtractedDeadline) -> str:
+def build_fingerprint(deadline: ExtractedDeadline, user_id: int) -> str:
     key = "|".join(
         [
+            str(user_id),
             _normalize(deadline.title),
             _normalize(deadline.deadline_date),
             _normalize(deadline.assigned_to),
@@ -73,7 +74,9 @@ class TaskEngine:
                     priority REAL NOT NULL,
                     status TEXT NOT NULL DEFAULT 'created',
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
                 """
             )
@@ -86,6 +89,7 @@ class TaskEngine:
         source_subject: str,
         source_sender: str,
         received_at: datetime,
+        user_id: int,
     ) -> tuple[int, int]:
         created = 0
         updated = 0
@@ -93,11 +97,11 @@ class TaskEngine:
 
         with self._connect() as conn:
             for task in tasks:
-                fp = build_fingerprint(task)
+                fp = build_fingerprint(task, user_id)
                 score = priority_score(task)
                 existing = conn.execute(
-                    "SELECT id FROM tasks WHERE fingerprint = ?",
-                    (fp,),
+                    "SELECT id FROM tasks WHERE fingerprint = ? AND user_id = ?",
+                    (fp, user_id),
                 ).fetchone()
 
                 payload = (
@@ -126,9 +130,9 @@ class TaskEngine:
                             deadline_date=?, assigned_to=?, counterparty=?, action_needed=?,
                             review_required=?, source_email_id=?, source_subject=?, source_sender=?,
                             received_at=?, priority=?, updated_at=?
-                        WHERE fingerprint=?
+                        WHERE fingerprint=? AND user_id=?
                         """,
-                        payload + (now, fp),
+                        payload + (now, fp, user_id),
                     )
                     updated += 1
                 else:
@@ -138,11 +142,11 @@ class TaskEngine:
                             fingerprint, title, deadline_type, urgency, source_quote, confidence,
                             deadline_date, assigned_to, counterparty, action_needed, review_required,
                             source_email_id, source_subject, source_sender, received_at,
-                            priority, status, created_at, updated_at
+                            priority, status, created_at, updated_at, user_id
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (fp,) + payload + (TaskStatus.CREATED.value, now, now),
+                        (fp,) + payload + (TaskStatus.CREATED.value, now, now, user_id),
                     )
                     created += 1
 

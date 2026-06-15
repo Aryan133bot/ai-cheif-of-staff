@@ -67,32 +67,14 @@ EMAIL_POLL_INTERVAL = int(os.getenv("EMAIL_POLL_INTERVAL_MINUTES", "15"))
 from datetime import datetime, timezone, timedelta
 
 # Initialize Google Calendar Client lazily/gracefully
-_gcal_client = None
-
-def get_gcal_client():
-    global _gcal_client
-    if _gcal_client is not None:
-        return _gcal_client
-    try:
-        # Add dashboard dir to path to ensure it imports google_calendar
-        import sys
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from google_calendar import GoogleCalendarClient
-        _gcal_client = GoogleCalendarClient()
-        return _gcal_client
-    except Exception as e:
-        logger.warning("Google Calendar Sync is disabled/unconfigured: %s", e)
-        return None
+def get_gcal_client(user_id: int = None):
+    # For now, Google Calendar is disabled in multi-tenant mode until fully rewritten.
+    return None
 
 
 # ─── Email Service (lazy) ────────────────────────────────────────────────────
 
-_email_service = None
-
-def get_email_service():
-    global _email_service
-    if _email_service is not None:
-        return _email_service
+def get_email_service(user_id: int):
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from email_providers.gmail import GmailProvider
@@ -100,9 +82,8 @@ def get_email_service():
         from email_service import EmailService
 
         registry = ProviderRegistry()
-        registry.register(GmailProvider())
-        _email_service = EmailService(DB_PATH, registry)
-        return _email_service
+        registry.register(GmailProvider(user_id=user_id))
+        return EmailService(DB_PATH, registry, user_id=user_id)
     except Exception as e:
         logger.warning("Email processing service unavailable: %s", e)
         return None
@@ -116,23 +97,26 @@ async def email_poll_loop():
         logger.info("Email auto-polling is disabled (interval=0)")
         return
 
-    # Wait 60 seconds before first run to let server fully initialize
     await asyncio.sleep(60)
     logger.info("Email auto-poll started — interval: %d minutes", EMAIL_POLL_INTERVAL)
 
     while True:
         try:
-            svc = get_email_service()
-            if svc:
-                logger.info("Auto-poll: processing new emails...")
-                result = await asyncio.to_thread(
-                    svc.process_new_emails, trigger="scheduled"
-                )
-                logger.info("Auto-poll complete: %s", result)
-            else:
-                logger.debug("Auto-poll skipped — email service not available")
+            users = db.get_all_users(DB_PATH)
+            for u in users:
+                user_id = u["id"]
+                try:
+                    svc = get_email_service(user_id)
+                    if svc:
+                        logger.info("Auto-poll: processing new emails for user %d...", user_id)
+                        result = await asyncio.to_thread(
+                            svc.process_new_emails, trigger="scheduled"
+                        )
+                        logger.info("Auto-poll complete for user %d: %s", user_id, result)
+                except Exception as e:
+                    logger.error("Auto-poll error for user %d: %s", user_id, e)
         except Exception as e:
-            logger.error("Auto-poll error: %s", e)
+            logger.error("Auto-poll outer loop error: %s", e)
 
         await asyncio.sleep(EMAIL_POLL_INTERVAL * 60)
 
@@ -577,7 +561,7 @@ def connect_gmail(request: Request, user: dict = Depends(get_current_user)):
         flow.redirect_uri = redirect_uri
         
         auth_url, state = flow.authorization_url(prompt="consent", access_type="offline")
-        _oauth_flows[state] = flow
+        _oauth_flows[state] = (flow, user["id"])
         
         return {"ok": True, "auth_url": auth_url}
     except Exception as e:
@@ -593,29 +577,24 @@ def gmail_callback(request: Request, state: str = None, code: str = None, error:
     if not code or not state:
         return RedirectResponse(url="/#settings?error=no_code_provided")
 
-    creds_path = Path(os.getenv("GMAIL_CREDENTIALS_PATH", _email_proc_dir / "credentials.json"))
-    token_path = Path(os.getenv("GMAIL_TOKEN_PATH", _email_proc_dir / "gmail_token.json"))
-
     sys.path.insert(0, str(_email_proc_dir))
     from gmail_scopes import GMAIL_SCOPES
 
     try:
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-        flow = _oauth_flows.pop(state, None)
-        if not flow:
+        flow_data = _oauth_flows.pop(state, None)
+        if not flow_data:
             logger.error("OAuth flow state not found or expired")
             return RedirectResponse(url="/#settings?error=session_expired")
         
         # Fetch the token using the full authorization response URL
+        flow, user_id = flow_data
         flow.fetch_token(authorization_response=str(request.url))
         
         creds = flow.credentials
-        token_path.write_text(creds.to_json(), encoding="utf-8")
-
-        global _email_service
-        _email_service = None
+        db.update_user_gmail_token(DB_PATH, user_id, creds.to_json())
         
-        logger.info("Gmail connected successfully via web callback")
+        logger.info("Gmail connected successfully via web callback for user %d", user_id)
         return RedirectResponse(url="/#settings")
     except Exception as e:
         logger.error("OAuth callback failed: %s", e)
@@ -625,12 +604,8 @@ def gmail_callback(request: Request, state: str = None, code: str = None, error:
 @app.post("/api/gmail/disconnect")
 def disconnect_gmail(user: dict = Depends(get_current_user)):
     """Remove Gmail token to disconnect the account."""
-    token_path = _email_proc_dir / "gmail_token.json"
-    if token_path.exists():
-        token_path.unlink()
-        global _email_service
-        _email_service = None
-        logger.info("Gmail disconnected — token removed")
+    db.update_user_gmail_token(DB_PATH, user["id"], None)
+    logger.info("Gmail disconnected for user %d", user["id"])
     return {"ok": True, "message": "Gmail disconnected."}
 
 
@@ -720,8 +695,8 @@ def approve_reply(
             draft = updated
 
     try:
-        gmail_response = send_approved_reply(DB_PATH, draft)
-        result = mark_draft_sent(DB_PATH, draft_id, gmail_response)
+        gmail_response = send_approved_reply(DB_PATH, draft, user_id=user["id"])
+        result = mark_draft_sent(DB_PATH, draft_id, gmail_response, user_id=user["id"])
         if result is None:
             raise RuntimeError("Failed to update draft status after send.")
     except (PermissionError, ValueError) as e:

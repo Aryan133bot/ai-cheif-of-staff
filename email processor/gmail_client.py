@@ -47,48 +47,38 @@ def _decode_part_data(data: str | None) -> str:
     return decoded.decode("utf-8", errors="ignore")
 
 
+import json
+
 class GmailClient:
     def __init__(
         self,
         credentials_path: str | None = None,
-        token_path: str | None = None,
+        token_json: str | None = None,
     ):
         script_dir = Path(__file__).resolve().parent
         env_creds = os.getenv("GMAIL_CREDENTIALS_PATH", "").strip()
         source_path = credentials_path or env_creds or "credentials.json"
-        
-        env_token = os.getenv("GMAIL_TOKEN_PATH", "").strip()
-        token_source = token_path or env_token or "gmail_token.json"
 
         creds_path = Path(source_path)
         if not creds_path.is_absolute():
             creds_path = (script_dir / creds_path).resolve()
 
-        token_file = Path(token_source)
-        if not token_file.is_absolute():
-            token_file = (script_dir / token_file).resolve()
-
         self.credentials_path = creds_path
-        self.token_path = token_file
+        self.token_json = token_json
         self.service = self._build_service()
 
     def _build_service(self):
         creds = None
-        if self.token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+        if self.token_json:
+            creds = Credentials.from_authorized_user_info(json.loads(self.token_json), SCOPES)
 
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
 
         if not creds or not creds.valid:
-            if not self.credentials_path.exists():
-                raise FileNotFoundError(
-                    f"Gmail OAuth client file not found: {self.credentials_path}. "
-                    "Download OAuth credentials JSON from Google Cloud and place it there."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(str(self.credentials_path), SCOPES)
-            creds = flow.run_local_server(port=0)
-            self.token_path.write_text(creds.to_json(), encoding="utf-8")
+            # We don't support InstalledAppFlow for multi-tenant web app anymore.
+            # OAuth is done via server.py callback now.
+            raise ValueError("Invalid or missing Gmail token JSON. User must re-authenticate via OAuth flow.")
 
         return build("gmail", "v1", credentials=creds)
 

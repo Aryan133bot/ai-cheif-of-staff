@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class EmailProcessor:
-    def __init__(self, db_path: str = "phase1_tasks.db"):
+    def __init__(self, db_path: str = "phase1_tasks.db", user_id: int = None):
         self.extractor = DeadlineExtractor()
         self.task_engine = TaskEngine(db_path=db_path)
+        self.user_id = user_id
 
     def process_email(self, email: RawEmail) -> dict:
         if not self.is_relevant_email(email):
@@ -42,6 +43,7 @@ class EmailProcessor:
             source_subject=email.subject,
             source_sender=email.sender,
             received_at=email.received_at,
+            user_id=self.user_id,
         )
         return {
             "email_id": email.email_id,

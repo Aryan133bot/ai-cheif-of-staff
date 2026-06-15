@@ -14,17 +14,17 @@ if _email_proc_dir not in sys.path:
     sys.path.insert(0, _email_proc_dir)
 
 
+import json
+
 class GmailProvider(EmailProvider):
     """Gmail integration using the existing GmailClient."""
 
-    def __init__(self):
+    def __init__(self, user_id: int):
+        self.user_id = user_id
         self._client = None
         import os
         env_creds = os.getenv("GMAIL_CREDENTIALS_PATH")
         self._credentials_path = Path(env_creds) if env_creds else Path(_email_proc_dir) / "credentials.json"
-        
-        env_token = os.getenv("GMAIL_TOKEN_PATH")
-        self._token_path = Path(env_token) if env_token else Path(_email_proc_dir) / "gmail_token.json"
 
     @property
     def name(self) -> str:
@@ -37,33 +37,33 @@ class GmailProvider(EmailProvider):
     def is_configured(self) -> bool:
         """Check if credentials.json exists."""
         return self._credentials_path.exists()
+        
+    def _get_token(self) -> str | None:
+        from db import get_user_gmail_token
+        import os
+        db_path = os.getenv("DASHBOARD_DB_PATH", "phase1_tasks.db")
+        return get_user_gmail_token(db_path, self.user_id)
 
     def is_authenticated(self) -> bool:
-        """Check if a valid token exists."""
-        if not self._token_path.exists():
+        """Check if a valid token exists for this user."""
+        token_json = self._get_token()
+        if not token_json:
             return False
         try:
             from google.oauth2.credentials import Credentials
             from gmail_scopes import GMAIL_SCOPES
-            creds = Credentials.from_authorized_user_file(
-                str(self._token_path),
-                GMAIL_SCOPES,
-            )
+            creds = Credentials.from_authorized_user_info(json.loads(token_json), GMAIL_SCOPES)
             return creds is not None and (creds.valid or creds.refresh_token is not None)
         except Exception:
             return False
 
     def _ensure_client(self):
-        """Lazily initialise the Gmail client.
-
-        Guards against triggering an OAuth popup — will only init the client
-        when a valid token already exists (i.e. the user has already connected
-        Gmail via Settings).
-        """
+        """Lazily initialise the Gmail client."""
         if self._client is not None:
             return
 
-        if not self.is_authenticated():
+        token_json = self._get_token()
+        if not token_json or not self.is_authenticated():
             raise RuntimeError(
                 "Gmail is not connected. Go to Settings → Connect Gmail to authorize access."
             )
@@ -72,7 +72,7 @@ class GmailProvider(EmailProvider):
             from gmail_client import GmailClient
             self._client = GmailClient(
                 credentials_path=str(self._credentials_path),
-                token_path=str(self._token_path),
+                token_json=token_json,
             )
         except Exception as e:
             logger.error("Failed to initialise Gmail client: %s", e)

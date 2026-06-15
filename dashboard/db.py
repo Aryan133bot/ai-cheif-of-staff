@@ -61,7 +61,9 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 priority REAL NOT NULL,
                 status TEXT NOT NULL DEFAULT 'created',
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
@@ -82,7 +84,9 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 reminder_minutes INTEGER,
                 created_at      TEXT    NOT NULL,
                 updated_at      TEXT    NOT NULL,
-                FOREIGN KEY (linked_task_id) REFERENCES tasks(id) ON DELETE SET NULL
+                user_id         INTEGER NOT NULL,
+                FOREIGN KEY (linked_task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
@@ -108,7 +112,9 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 send_error            TEXT,
                 created_at            TEXT    NOT NULL,
                 updated_at            TEXT    NOT NULL,
-                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+                user_id               INTEGER NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
@@ -120,6 +126,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 name       TEXT    NOT NULL,
                 email      TEXT    NOT NULL UNIQUE,
                 password   TEXT    NOT NULL,
+                gmail_token TEXT,
                 created_at TEXT    NOT NULL,
                 last_login TEXT
             )
@@ -141,7 +148,9 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 tasks_updated    INTEGER DEFAULT 0,
                 errors           INTEGER DEFAULT 0,
                 error_details    TEXT,
-                status           TEXT    NOT NULL DEFAULT 'running'
+                status           TEXT    NOT NULL DEFAULT 'running',
+                user_id          INTEGER NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
@@ -179,12 +188,13 @@ def get_all_tasks(
     deadline_type: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    user_id: int = None,
 ) -> list[dict]:
     """Fetch tasks with optional filters."""
     conn = get_db(db_path)
     try:
-        clauses = []
-        params: list = []
+        clauses = ["user_id = ?"] if user_id else []
+        params: list = [user_id] if user_id else []
         if status:
             clauses.append("status = ?")
             params.append(status)
@@ -209,27 +219,41 @@ def get_all_tasks(
         conn.close()
 
 
-def get_task_by_id(db_path: str, task_id: int) -> dict | None:
+def get_task_by_id(db_path: str, task_id: int, user_id: int = None) -> dict | None:
     conn = get_db(db_path)
     try:
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if user_id:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
 
 
-def get_task_priorities(db_path: str = DEFAULT_DB_PATH, limit: int = 10) -> list[dict]:
+def get_task_priorities(db_path: str = DEFAULT_DB_PATH, limit: int = 10, user_id: int = None) -> list[dict]:
     conn = get_db(db_path)
     try:
-        rows = conn.execute(
-            """
-            SELECT * FROM tasks
-            WHERE status IN ('created', 'reviewed', 'in_progress', 'blocked')
-            ORDER BY priority DESC, received_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        if user_id:
+            rows = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE status IN ('created', 'reviewed', 'in_progress', 'blocked') AND user_id = ?
+                ORDER BY priority DESC, received_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE status IN ('created', 'reviewed', 'in_progress', 'blocked')
+                ORDER BY priority DESC, received_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -336,10 +360,13 @@ def get_calendar_events(
         conn.close()
 
 
-def get_calendar_event(db_path: str, event_id: int) -> dict | None:
+def get_calendar_event(db_path: str, event_id: int, user_id: int = None) -> dict | None:
     conn = get_db(db_path)
     try:
-        row = conn.execute("SELECT * FROM calendar_events WHERE id = ?", (event_id,)).fetchone()
+        if user_id:
+            row = conn.execute("SELECT * FROM calendar_events WHERE id = ? AND user_id = ?", (event_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM calendar_events WHERE id = ?", (event_id,)).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -414,10 +441,13 @@ def update_calendar_event(db_path: str, event_id: int, data: dict) -> dict | Non
         conn.close()
 
 
-def delete_calendar_event(db_path: str, event_id: int) -> bool:
+def delete_calendar_event(db_path: str, event_id: int, user_id: int = None) -> bool:
     conn = get_db(db_path)
     try:
-        cursor = conn.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+        if user_id:
+            cursor = conn.execute("DELETE FROM calendar_events WHERE id = ? AND user_id = ?", (event_id, user_id))
+        else:
+            cursor = conn.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
         conn.commit()
         return cursor.rowcount > 0
     finally:
@@ -698,10 +728,13 @@ def update_reply_draft(db_path: str, draft_id: int, data: dict) -> dict | None:
         conn.close()
 
 
-def delete_reply_draft(db_path: str, draft_id: int) -> bool:
+def delete_reply_draft(db_path: str, draft_id: int, user_id: int = None) -> bool:
     conn = get_db(db_path)
     try:
-        cursor = conn.execute("DELETE FROM reply_drafts WHERE id = ?", (draft_id,))
+        if user_id:
+            cursor = conn.execute("DELETE FROM reply_drafts WHERE id = ? AND user_id = ?", (draft_id, user_id))
+        else:
+            cursor = conn.execute("DELETE FROM reply_drafts WHERE id = ?", (draft_id,))
         conn.commit()
         return cursor.rowcount > 0
     finally:
@@ -779,5 +812,30 @@ def get_latest_processing_run(db_path: str) -> dict | None:
             "SELECT * FROM email_processing_runs WHERE status = 'completed' ORDER BY started_at DESC LIMIT 1"
         ).fetchone()
         return dict(row) if row else None
+    finally:
+        conn.close()
+
+def get_all_users(db_path: str = DEFAULT_DB_PATH) -> list[dict]:
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute("SELECT * FROM users").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def update_user_gmail_token(db_path: str, user_id: int, token_json: str) -> bool:
+    conn = get_db(db_path)
+    try:
+        conn.execute("UPDATE users SET gmail_token = ? WHERE id = ?", (token_json, user_id))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+def get_user_gmail_token(db_path: str, user_id: int) -> str | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT gmail_token FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row["gmail_token"] if row else None
     finally:
         conn.close()

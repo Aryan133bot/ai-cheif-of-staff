@@ -1403,6 +1403,16 @@ function handleLogout() {
     document.getElementById('login-form').style.display = '';
 }
 
+function toggleAuth(type) {
+    if (type === 'setup') {
+        document.getElementById('setup-form').style.display = '';
+        document.getElementById('login-form').style.display = 'none';
+    } else {
+        document.getElementById('setup-form').style.display = 'none';
+        document.getElementById('login-form').style.display = '';
+    }
+}
+
 // ─── Init ───────────────────────────────────────────────────────────────────
 
 async function initApp() {
