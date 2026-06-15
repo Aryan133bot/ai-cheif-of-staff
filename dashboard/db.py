@@ -743,13 +743,15 @@ def delete_reply_draft(db_path: str, draft_id: int, user_id: int = None) -> bool
 
 # ─── Email processing run queries ────────────────────────────────────────────
 
-def create_processing_run(db_path: str, trigger: str = "manual", provider: str = "all") -> int:
+def create_processing_run(db_path: str, trigger: str = "manual", provider: str = "all", user_id: int = None) -> int:
     """Start a new processing run record. Returns the run ID."""
     conn = get_db(db_path)
     try:
+        if user_id is None:
+            raise ValueError("user_id is required")
         cursor = conn.execute(
-            "INSERT INTO email_processing_runs (started_at, trigger, provider, status) VALUES (?, ?, ?, ?)",
-            (_now_iso(), trigger, provider, "running"),
+            "INSERT INTO email_processing_runs (started_at, trigger, provider, status, user_id) VALUES (?, ?, ?, ?, ?)",
+            (_now_iso(), trigger, provider, "running", user_id),
         )
         conn.commit()
         return cursor.lastrowid
@@ -768,6 +770,7 @@ def complete_processing_run(
     errors: int = 0,
     error_details: str | None = None,
     status: str = "completed",
+    user_id: int = None,
 ) -> None:
     """Finalize a processing run with its results."""
     conn = get_db(db_path)
@@ -778,12 +781,12 @@ def complete_processing_run(
             SET completed_at = ?, emails_fetched = ?, emails_processed = ?,
                 emails_skipped = ?, tasks_created = ?, tasks_updated = ?,
                 errors = ?, error_details = ?, status = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
             (
                 _now_iso(), emails_fetched, emails_processed,
                 emails_skipped, tasks_created, tasks_updated,
-                errors, error_details, status, run_id,
+                errors, error_details, status, run_id, user_id,
             ),
         )
         conn.commit()
@@ -791,25 +794,30 @@ def complete_processing_run(
         conn.close()
 
 
-def get_processing_history(db_path: str, limit: int = 20) -> list[dict]:
+def get_processing_history(db_path: str, limit: int = 20, user_id: int = None) -> list[dict]:
     """Fetch the most recent email processing runs."""
     conn = get_db(db_path)
     try:
+        if user_id is None:
+            raise ValueError("user_id is required")
         rows = conn.execute(
-            "SELECT * FROM email_processing_runs ORDER BY started_at DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM email_processing_runs WHERE user_id = ? ORDER BY started_at DESC LIMIT ?",
+            (user_id, limit,),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def get_latest_processing_run(db_path: str) -> dict | None:
+def get_latest_processing_run(db_path: str, user_id: int = None) -> dict | None:
     """Get the most recent completed processing run."""
     conn = get_db(db_path)
     try:
+        if user_id is None:
+            raise ValueError("user_id is required")
         row = conn.execute(
-            "SELECT * FROM email_processing_runs WHERE status = 'completed' ORDER BY started_at DESC LIMIT 1"
+            "SELECT * FROM email_processing_runs WHERE status = 'completed' AND user_id = ? ORDER BY started_at DESC LIMIT 1",
+            (user_id,)
         ).fetchone()
         return dict(row) if row else None
     finally:
