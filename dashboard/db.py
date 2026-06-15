@@ -153,14 +153,22 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             """
         )
 
-        # Dynamic schema migration: add gcal_event_id if missing
-        cursor = conn.execute("PRAGMA table_info(calendar_events)")
-        columns = [row["name"] for row in cursor.fetchall()]
+        import os
+        is_pg = bool(os.environ.get("DATABASE_URL"))
+        
+        def get_columns(table_name: str) -> list[str]:
+            if is_pg:
+                c = conn.execute("SELECT column_name FROM information_schema.columns WHERE table_name = ?", (table_name,))
+                return [r["column_name"] for r in c.fetchall()]
+            else:
+                c = conn.execute(f"PRAGMA table_info({table_name})")
+                return [r["name"] for r in c.fetchall()]
+
+        columns = get_columns("calendar_events")
         if "gcal_event_id" not in columns:
             conn.execute("ALTER TABLE calendar_events ADD COLUMN gcal_event_id TEXT")
 
-        cursor = conn.execute("PRAGMA table_info(reply_drafts)")
-        draft_columns = [row["name"] for row in cursor.fetchall()]
+        draft_columns = get_columns("reply_drafts")
         for col, ddl in (
             ("gmail_message_id", "ALTER TABLE reply_drafts ADD COLUMN gmail_message_id TEXT"),
             ("gmail_thread_id", "ALTER TABLE reply_drafts ADD COLUMN gmail_thread_id TEXT"),

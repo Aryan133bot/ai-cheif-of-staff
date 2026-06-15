@@ -53,8 +53,8 @@ class PgConnection:
     def execute(self, sql, params=()):
         # Convert ? to %s
         pg_sql = sql.replace("?", "%s")
-        # Replace AUTOINCREMENT with SERIAL for table creation
-        pg_sql = pg_sql.replace("AUTOINCREMENT", "SERIAL")
+        # Fix AUTOINCREMENT syntax for PostgreSQL
+        pg_sql = pg_sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
         
         cursor = self.conn.cursor()
         cursor.execute(pg_sql, params)
