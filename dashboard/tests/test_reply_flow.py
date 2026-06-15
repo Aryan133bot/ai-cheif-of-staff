@@ -46,7 +46,8 @@ def db_path():
             priority REAL NOT NULL,
             status TEXT NOT NULL DEFAULT 'created',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            user_id INTEGER NOT NULL DEFAULT 1
         )
         """
     )
@@ -56,8 +57,8 @@ def db_path():
         INSERT INTO tasks (
             fingerprint, title, deadline_type, urgency, source_quote, confidence,
             source_email_id, source_subject, source_sender, received_at,
-            priority, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            priority, created_at, updated_at, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "fp1",
@@ -73,6 +74,7 @@ def db_path():
             90.0,
             now,
             now,
+            1,
         ),
     )
     conn.commit()
@@ -93,6 +95,7 @@ def test_create_reply_draft_with_gmail_ids(db_path):
             "gmail_message_id": "gmail-msg-001",
             "gmail_thread_id": "thread-abc",
         },
+        user_id=1,
     )
     assert draft["gmail_message_id"] == "gmail-msg-001"
     assert draft["gmail_thread_id"] == "thread-abc"
@@ -109,6 +112,7 @@ def test_active_draft_prevents_duplicate(db_path):
             "original_body": "body",
             "draft_text": "draft one",
         },
+        user_id=1,
     )
     assert db.has_active_reply_draft_for_task(db_path, 1) is True
 

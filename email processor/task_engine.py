@@ -1,8 +1,16 @@
 import hashlib
 import logging
 import sqlite3
+import sys
+import os
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Iterable
+
+_dashboard_dir = str(Path(__file__).resolve().parent.parent / "dashboard")
+if _dashboard_dir not in sys.path:
+    sys.path.insert(0, _dashboard_dir)
+from db_core import get_connection
 
 from models import ExtractedDeadline, TaskStatus, Urgency
 
@@ -45,10 +53,8 @@ class TaskEngine:
         self.db_path = db_path
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _connect(self):
+        return get_connection(self.db_path)
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -136,7 +142,7 @@ class TaskEngine:
                     )
                     updated += 1
                 else:
-                    conn.execute(
+                    cursor = conn.execute(
                         """
                         INSERT INTO tasks (
                             fingerprint, title, deadline_type, urgency, source_quote, confidence,
@@ -144,10 +150,11 @@ class TaskEngine:
                             source_email_id, source_subject, source_sender, received_at,
                             priority, status, created_at, updated_at, user_id
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
                         """,
                         (fp,) + payload + (TaskStatus.CREATED.value, now, now, user_id),
                     )
+                    row = cursor.fetchone()
                     created += 1
 
             conn.commit()

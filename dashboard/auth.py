@@ -11,6 +11,7 @@ import re
 import sqlite3
 import warnings
 from datetime import datetime, timezone, timedelta
+from db_core import get_connection
 
 import bcrypt
 import jwt
@@ -82,7 +83,7 @@ def has_any_account(db_path: str) -> bool:
             return row[0] > 0
         finally:
             conn.close()
-    except (sqlite3.OperationalError, Exception):
+    except Exception:
         # Table doesn't exist yet or DB not initialized
         return False
 
@@ -115,11 +116,12 @@ def create_account(db_path: str, name: str, email: str, password: str) -> dict:
         hashed = hash_password(password)
         now = datetime.now(timezone.utc).isoformat()
         cursor = conn.execute(
-            "INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?) RETURNING id",
             (name, email, hashed, now),
         )
+        row = cursor.fetchone()
+        user_id = row["id"] if isinstance(row, dict) else row[0]
         conn.commit()
-        user_id = cursor.lastrowid
         logger.info("Account created for %s (%s)", name, email)
         return {"id": user_id, "name": name, "email": email}
     finally:

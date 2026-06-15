@@ -19,13 +19,11 @@ DEFAULT_DB_PATH = str(
 )
 
 
-def get_db(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+from db_core import get_connection
+
+def get_db(db_path: str = DEFAULT_DB_PATH):
     """Return a connection with Row factory and WAL mode for concurrent reads."""
-    conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return get_connection(db_path)
 
 
 def _now_iso() -> str:
@@ -382,7 +380,7 @@ def create_calendar_event(db_path: str, data: dict) -> dict:
                 (title, description, start_time, end_time, all_day,
                  event_type, urgency, linked_task_id, color,
                  reminder_minutes, gcal_event_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             """,
             (
                 data["title"],
@@ -400,8 +398,9 @@ def create_calendar_event(db_path: str, data: dict) -> dict:
                 now,
             ),
         )
+        row = cursor.fetchone()
+        event_id = row["id"] if isinstance(row, dict) else row[0]
         conn.commit()
-        event_id = cursor.lastrowid
         row = conn.execute("SELECT * FROM calendar_events WHERE id = ?", (event_id,)).fetchone()
         return dict(row)
     finally:
@@ -654,7 +653,7 @@ def get_tasks_by_source_email_id(db_path: str, source_email_id: str) -> list[dic
         conn.close()
 
 
-def create_reply_draft(db_path: str, data: dict) -> dict:
+def create_reply_draft(db_path: str, data: dict, user_id: int) -> dict:
     now = _now_iso()
     conn = get_db(db_path)
     try:
@@ -664,8 +663,8 @@ def create_reply_draft(db_path: str, data: dict) -> dict:
                 (task_id, original_subject, original_sender, original_body,
                  reply_intent, draft_text, edited_text, status,
                  model_used, confidence, gmail_message_id, gmail_thread_id,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, updated_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             """,
             (
                 data.get("task_id"),
@@ -682,10 +681,13 @@ def create_reply_draft(db_path: str, data: dict) -> dict:
                 data.get("gmail_thread_id"),
                 now,
                 now,
+                user_id,
             ),
         )
+        row = cursor.fetchone()
+        draft_id = row["id"] if isinstance(row, dict) else row[0]
         conn.commit()
-        row = conn.execute("SELECT * FROM reply_drafts WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        row = conn.execute("SELECT * FROM reply_drafts WHERE id = ?", (draft_id,)).fetchone()
         return dict(row)
     finally:
         conn.close()
@@ -750,11 +752,13 @@ def create_processing_run(db_path: str, trigger: str = "manual", provider: str =
         if user_id is None:
             raise ValueError("user_id is required")
         cursor = conn.execute(
-            "INSERT INTO email_processing_runs (started_at, trigger, provider, status, user_id) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO email_processing_runs (started_at, trigger, provider, status, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id",
             (_now_iso(), trigger, provider, "running", user_id),
         )
+        row = cursor.fetchone()
+        run_id = row["id"] if isinstance(row, dict) else row[0]
         conn.commit()
-        return cursor.lastrowid
+        return run_id
     finally:
         conn.close()
 
