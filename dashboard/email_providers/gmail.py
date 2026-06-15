@@ -120,10 +120,23 @@ class GmailProvider(EmailProvider):
 
     def get_status(self) -> dict:
         """Enhanced status with Gmail-specific details."""
-        from gmail_scopes import token_includes_send_scope
+        import json
 
         base = super().get_status()
         base["credentials_path"] = str(self._credentials_path)
-        base["token_path"] = str(self._token_path)
-        base["can_send"] = token_includes_send_scope(str(self._token_path))
+        base["token_path"] = "database"
+        
+        can_send = False
+        token_json = self._get_token()
+        if token_json:
+            try:
+                data = json.loads(token_json)
+                scopes = data.get("scopes") or []
+                if isinstance(scopes, str):
+                    scopes = scopes.split()
+                can_send = "https://www.googleapis.com/auth/gmail.send" in scopes
+            except Exception:
+                pass
+                
+        base["can_send"] = can_send
         return base

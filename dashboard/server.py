@@ -1,3 +1,6 @@
+import traceback
+from fastapi.responses import JSONResponse
+from fastapi import Request
 """
 AI Chief of Staff — Dashboard API Server
 
@@ -149,6 +152,14 @@ app = FastAPI(
     description="Dashboard backend with authentication, email processing, task management, calendar, and reply drafting.",
     lifespan=lifespan,
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled exception: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "traceback": traceback.format_exc()}
+    )
 
 app.add_middleware(
     CORSMiddleware,
