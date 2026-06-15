@@ -164,6 +164,7 @@ class EmailService:
                 errors=1,
                 error_details=json.dumps([str(e)]),
                 status="failed",
+                user_id=self.user_id,
             )
             return {
                 "ok": False,
@@ -173,7 +174,7 @@ class EmailService:
 
     def get_status(self) -> dict:
         """Get the current status of the email processing system."""
-        latest = db.get_latest_processing_run(self.db_path)
+        latest = db.get_latest_processing_run(self.db_path, user_id=self.user_id)
         return {
             "providers": self.registry.list_providers(),
             "last_run": dict(latest) if latest else None,
@@ -181,4 +182,4 @@ class EmailService:
 
     def get_history(self, limit: int = 20) -> list[dict]:
         """Get the recent processing run history."""
-        return db.get_processing_history(self.db_path, limit=limit)
+        return db.get_processing_history(self.db_path, limit=limit, user_id=self.user_id)
