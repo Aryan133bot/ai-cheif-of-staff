@@ -506,7 +506,7 @@ def sync_google_calendar(user: dict = Depends(get_current_user)):
 @app.post("/api/emails/process")
 def process_emails(user: dict = Depends(get_current_user)):
     """Manually trigger email fetch and processing."""
-    svc = get_email_service()
+    svc = get_email_service(user["id"])
     if not svc:
         raise HTTPException(
             status_code=400,
