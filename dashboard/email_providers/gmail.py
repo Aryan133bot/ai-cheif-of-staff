@@ -19,8 +19,12 @@ class GmailProvider(EmailProvider):
 
     def __init__(self):
         self._client = None
-        self._credentials_path = Path(_email_proc_dir) / "credentials.json"
-        self._token_path = Path(_email_proc_dir) / "gmail_token.json"
+        import os
+        env_creds = os.getenv("GMAIL_CREDENTIALS_PATH")
+        self._credentials_path = Path(env_creds) if env_creds else Path(_email_proc_dir) / "credentials.json"
+        
+        env_token = os.getenv("GMAIL_TOKEN_PATH")
+        self._token_path = Path(env_token) if env_token else Path(_email_proc_dir) / "gmail_token.json"
 
     @property
     def name(self) -> str:
