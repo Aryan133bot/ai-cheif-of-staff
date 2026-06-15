@@ -321,8 +321,8 @@ def list_tasks(
 
 
 @app.get("/api/tasks/priorities")
-def task_priorities(limit: int = Query(default=10, le=50), user: dict = Depends(get_current_user)):
-    return db.get_task_priorities(db_path=DB_PATH, limit=limit)
+def task_priorities(limit: int = 10, user: dict = Depends(get_current_user)):
+    return db.get_task_priorities(db_path=DB_PATH, limit=limit, user_id=user["id"])
 
 
 @app.get("/api/tasks/review-queue")
@@ -343,7 +343,7 @@ def update_status(task_id: int, body: StatusUpdate, user: dict = Depends(get_cur
 
 @app.get("/api/stats")
 def dashboard_stats(user: dict = Depends(get_current_user)):
-    return db.get_task_stats(db_path=DB_PATH)
+    return db.get_task_stats(db_path=DB_PATH, user_id=user["id"])
 
 
 # ─── Calendar endpoints ─────────────────────────────────────────────────────

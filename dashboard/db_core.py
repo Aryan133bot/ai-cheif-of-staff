@@ -79,6 +79,9 @@ class PgCursor:
     def __init__(self, cursor):
         self.cursor = cursor
         
+    def __iter__(self):
+        return iter(self.cursor)
+        
     def fetchone(self):
         try:
             return self.cursor.fetchone()

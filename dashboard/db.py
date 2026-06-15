@@ -299,33 +299,41 @@ def update_task_status(db_path: str, task_id: int, new_status: str) -> bool:
         conn.close()
 
 
-def get_task_stats(db_path: str = DEFAULT_DB_PATH) -> dict:
+def get_task_stats(db_path: str = DEFAULT_DB_PATH, user_id: int = None) -> dict:
     """Aggregate counts for the dashboard summary cards."""
     conn = get_db(db_path)
     try:
-        total = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        where_user = "WHERE user_id = ?" if user_id else ""
+        where_user_and = "WHERE user_id = ? AND " if user_id else "WHERE "
+        params = (user_id,) if user_id else ()
+
+        total = conn.execute(f"SELECT COUNT(*) FROM tasks {where_user}", params).fetchone()[0]
+        
         by_urgency = {}
         for row in conn.execute(
-            "SELECT urgency, COUNT(*) as cnt FROM tasks "
-            "WHERE status NOT IN ('completed','dismissed') GROUP BY urgency"
+            f"SELECT urgency, COUNT(*) as cnt FROM tasks "
+            f"{where_user_and} status NOT IN ('completed','dismissed') GROUP BY urgency",
+            params
         ):
             by_urgency[row["urgency"]] = row["cnt"]
 
         by_status = {}
-        for row in conn.execute("SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status"):
+        for row in conn.execute(f"SELECT status, COUNT(*) as cnt FROM tasks {where_user} GROUP BY status", params):
             by_status[row["status"]] = row["cnt"]
 
         by_type = {}
         for row in conn.execute(
-            "SELECT deadline_type, COUNT(*) as cnt FROM tasks "
-            "WHERE status NOT IN ('completed','dismissed') GROUP BY deadline_type"
+            f"SELECT deadline_type, COUNT(*) as cnt FROM tasks "
+            f"{where_user_and} status NOT IN ('completed','dismissed') GROUP BY deadline_type",
+            params
         ):
             by_type[row["deadline_type"]] = row["cnt"]
 
-        pending_reviews = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE review_required = 1 "
-            "AND status IN ('created','reviewed','in_progress','blocked')"
-        ).fetchone()[0]
+        pending_reviews_query = (
+            f"SELECT COUNT(*) FROM tasks {where_user_and} review_required = 1 "
+            f"AND status IN ('created','reviewed','in_progress','blocked')"
+        )
+        pending_reviews = conn.execute(pending_reviews_query, params).fetchone()[0]
 
         return {
             "total": total,
