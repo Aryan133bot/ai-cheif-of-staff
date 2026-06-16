@@ -76,6 +76,8 @@ def generate_reply_text(
         f"Draft a professional reply."
     )
 
+    last_error = ""
+
     gemini_key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if gemini_key and gemini_key.lower() != "your-gemini-key-here":
         try:
@@ -89,6 +91,7 @@ def generate_reply_text(
             return response.text.strip(), "gemini-2.0-flash", 0.85
         except Exception as e:
             logger.error("Gemini reply generation failed: %s — trying next provider", e)
+            last_error = f"Gemini Error: {str(e)}"
 
     anthropic_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
     if anthropic_key and anthropic_key.lower() != "your-anthropic-key-here" and anthropic_key.startswith("sk-ant-"):
@@ -105,6 +108,9 @@ def generate_reply_text(
             return response.content[0].text.strip(), "claude-haiku-4-5-20251001", 0.85
         except Exception as e:
             logger.error("Claude reply generation failed: %s — using template fallback", e)
+            last_error = f"Claude Error: {str(e)}"
 
     logger.info("No valid AI API key — using template-based reply fallback")
-    return _template_reply(original_subject, original_sender, reply_intent), "template", 0.5
+    
+    error_msg = f"\n\n[Debug Info: {last_error}]" if last_error else ""
+    return _template_reply(original_subject, original_sender, reply_intent) + error_msg, "template", 0.5
