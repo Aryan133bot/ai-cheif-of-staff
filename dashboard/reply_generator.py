@@ -7,12 +7,14 @@ logger = logging.getLogger(__name__)
 
 REPLY_SYSTEM_PROMPT = """You are an AI assistant drafting a professional email reply
 on behalf of a busy executive. You will be given:
-1. The original email (subject, sender, body)
+1. The original email (subject, sender, AND the full body)
 2. The user's intent (follow_up, acknowledge, request_info, decline, custom)
+
+CRITICAL INSTRUCTION: First, meticulously read and analyze the FULL email body. Do not just blindly reply based on the subject line. Your reply must contextually address the specific contents, questions, or context provided in the email body.
 
 Write a concise, professional reply that:
 - Matches the tone of the original email
-- Addresses the key points
+- Addresses the key points from the body
 - Is ready to send with minimal edits
 - Signs off naturally (do NOT add a name — the user will add their own)
 
@@ -27,25 +29,25 @@ def _template_reply(subject: str, sender: str, intent: str) -> str:
     templates = {
         "follow_up": (
             f"Hi {sender_name},\n\n"
-            f"Following up on your email regarding \"{subject}\". "
+            f"Following up on your recent email. "
             f"Could you share an update on this when you get a chance?\n\n"
             f"Thanks,"
         ),
         "acknowledge": (
             f"Hi {sender_name},\n\n"
-            f"Thank you for your email regarding \"{subject}\". "
+            f"Thank you for your recent email. "
             f"I've noted the details and will get back to you shortly.\n\n"
             f"Best,"
         ),
         "request_info": (
             f"Hi {sender_name},\n\n"
-            f"Thanks for reaching out about \"{subject}\". "
-            f"Could you provide some additional details so I can review this properly?\n\n"
+            f"Thanks for reaching out. "
+            f"Could you provide some additional details regarding your email so I can review this properly?\n\n"
             f"Thanks,"
         ),
         "decline": (
             f"Hi {sender_name},\n\n"
-            f"Thank you for your email regarding \"{subject}\". "
+            f"Thank you for your recent email. "
             f"Unfortunately, I won't be able to proceed with this at the moment. "
             f"I'll reach out if anything changes.\n\n"
             f"Best regards,"
