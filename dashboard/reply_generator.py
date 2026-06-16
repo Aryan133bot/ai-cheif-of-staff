@@ -112,5 +112,5 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
-    error_msg = f"\n\n[Debug Info: {last_error}]" if last_error else ""
+    error_msg = f"\n\n[Debug Info: {last_error or 'No exceptions caught'} | Key exists: {bool(gemini_key)} | Key len: {len(gemini_key) if gemini_key else 0}]"
     return _template_reply(original_subject, original_sender, reply_intent) + error_msg, "template", 0.5
