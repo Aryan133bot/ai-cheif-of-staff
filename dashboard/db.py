@@ -265,33 +265,39 @@ def get_task_priorities(db_path: str = DEFAULT_DB_PATH, limit: int = 10, user_id
         conn.close()
 
 
-def get_review_queue(db_path: str = DEFAULT_DB_PATH, limit: int = 50) -> list[dict]:
+def get_review_queue(db_path: str = DEFAULT_DB_PATH, limit: int = 50, user_id: int = None) -> list[dict]:
     conn = get_db(db_path)
     try:
+        where_user_and = "user_id = ? AND " if user_id else ""
+        params = (user_id,) if user_id else ()
+        
         rows = conn.execute(
-            """
+            f"""
             SELECT * FROM tasks
-            WHERE review_required = 1
+            WHERE {where_user_and} review_required = 1
               AND status IN ('created', 'reviewed', 'in_progress', 'blocked')
             ORDER BY confidence ASC, priority DESC
             LIMIT ?
             """,
-            (limit,),
+            params + (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def update_task_status(db_path: str, task_id: int, new_status: str) -> bool:
+def update_task_status(db_path: str, task_id: int, new_status: str, user_id: int = None) -> bool:
     allowed = {"created", "reviewed", "in_progress", "blocked", "completed", "dismissed"}
     if new_status not in allowed:
         raise ValueError(f"Invalid status '{new_status}'. Allowed: {sorted(allowed)}")
     conn = get_db(db_path)
     try:
+        where_user = " AND user_id = ?" if user_id else ""
+        params = (new_status, _now_iso(), task_id, user_id) if user_id else (new_status, _now_iso(), task_id)
+        
         cursor = conn.execute(
-            "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
-            (new_status, _now_iso(), task_id),
+            f"UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?{where_user}",
+            params,
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -545,18 +551,23 @@ def get_reply_drafts(
     db_path: str = DEFAULT_DB_PATH,
     status: str | None = None,
     limit: int = 50,
+    user_id: int = None,
 ) -> list[dict]:
     conn = get_db(db_path)
     try:
+        where_user = "WHERE user_id = ?" if user_id else ""
+        where_user_and = "WHERE user_id = ? AND " if user_id else "WHERE "
+        params = (user_id,) if user_id else ()
+        
         if status:
             rows = conn.execute(
-                "SELECT * FROM reply_drafts WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-                (status, limit),
+                f"SELECT * FROM reply_drafts {where_user_and} status = ? ORDER BY created_at DESC LIMIT ?",
+                params + (status, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM reply_drafts ORDER BY created_at DESC LIMIT ?",
-                (limit,),
+                f"SELECT * FROM reply_drafts {where_user} ORDER BY created_at DESC LIMIT ?",
+                params + (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -709,7 +720,7 @@ def create_reply_draft(db_path: str, data: dict, user_id: int) -> dict:
         conn.close()
 
 
-def update_reply_draft(db_path: str, draft_id: int, data: dict) -> dict | None:
+def update_reply_draft(db_path: str, draft_id: int, data: dict, user_id: int = None) -> dict | None:
     now = _now_iso()
     conn = get_db(db_path)
     try:
@@ -734,13 +745,23 @@ def update_reply_draft(db_path: str, draft_id: int, data: dict) -> dict | None:
         sets.append("updated_at = ?")
         params.append(now)
         params.append(draft_id)
+        
+        where_clause = "WHERE id = ?"
+        if user_id:
+            where_clause += " AND user_id = ?"
+            params.append(user_id)
 
         conn.execute(
-            f"UPDATE reply_drafts SET {', '.join(sets)} WHERE id = ?",
+            f"UPDATE reply_drafts SET {', '.join(sets)} {where_clause}",
             params,
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM reply_drafts WHERE id = ?", (draft_id,)).fetchone()
+        
+        if user_id:
+            row = conn.execute("SELECT * FROM reply_drafts WHERE id = ? AND user_id = ?", (draft_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM reply_drafts WHERE id = ?", (draft_id,)).fetchone()
+            
         return dict(row) if row else None
     finally:
         conn.close()

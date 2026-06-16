@@ -327,13 +327,13 @@ def task_priorities(limit: int = 10, user: dict = Depends(get_current_user)):
 
 @app.get("/api/tasks/review-queue")
 def review_queue(limit: int = Query(default=50, le=200), user: dict = Depends(get_current_user)):
-    return db.get_review_queue(db_path=DB_PATH, limit=limit)
+    return db.get_review_queue(db_path=DB_PATH, limit=limit, user_id=user["id"])
 
 
 @app.patch("/api/tasks/{task_id}/status")
 def update_status(task_id: int, body: StatusUpdate, user: dict = Depends(get_current_user)):
     try:
-        ok = db.update_task_status(DB_PATH, task_id, body.status)
+        ok = db.update_task_status(DB_PATH, task_id, body.status, user_id=user["id"])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not ok:
@@ -639,11 +639,11 @@ def disconnect_gmail(user: dict = Depends(get_current_user)):
 
 # ─── Reply engine endpoints ─────────────────────────────────────────────────
 
-def _resolve_draft_gmail_ids(body: ReplyDraftRequest) -> tuple[str | None, str | None]:
+def _resolve_draft_gmail_ids(body: ReplyDraftRequest, user_id: int) -> tuple[str | None, str | None]:
     if body.gmail_message_id:
         return body.gmail_message_id, body.gmail_thread_id
     if body.task_id:
-        task = db.get_task_by_id(DB_PATH, body.task_id)
+        task = db.get_task_by_id(DB_PATH, body.task_id, user_id=user_id)
         if task:
             return task.get("source_email_id"), body.gmail_thread_id
     return None, body.gmail_thread_id
@@ -652,7 +652,7 @@ def _resolve_draft_gmail_ids(body: ReplyDraftRequest) -> tuple[str | None, str |
 @app.post("/api/replies/draft", status_code=201)
 def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_user)):
     """Generate an AI reply draft and store it for approval."""
-    gmail_message_id, gmail_thread_id = _resolve_draft_gmail_ids(body)
+    gmail_message_id, gmail_thread_id = _resolve_draft_gmail_ids(body, user["id"])
     draft_text, model_used, confidence = generate_reply_text(
         original_subject=body.original_subject,
         original_sender=body.original_sender,
@@ -672,18 +672,18 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
         "gmail_message_id": gmail_message_id,
         "gmail_thread_id": gmail_thread_id,
     }
-    return db.create_reply_draft(db_path=DB_PATH, data=data)
+    return db.create_reply_draft(db_path=DB_PATH, data=data, user_id=user["id"])
 
 
 @app.get("/api/replies")
 def list_replies(status: str | None = None, limit: int = Query(default=50, le=200), user: dict = Depends(get_current_user)):
-    return db.get_reply_drafts(db_path=DB_PATH, status=status, limit=limit)
+    return db.get_reply_drafts(db_path=DB_PATH, status=status, limit=limit, user_id=user["id"])
 
 
 @app.patch("/api/replies/{draft_id}")
 def update_reply(draft_id: int, body: ReplyDraftUpdate, user: dict = Depends(get_current_user)):
     data = body.model_dump(exclude_none=True)
-    result = db.update_reply_draft(db_path=DB_PATH, draft_id=draft_id, data=data)
+    result = db.update_reply_draft(db_path=DB_PATH, draft_id=draft_id, data=data, user_id=user["id"])
     if result is None:
         raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
     return result
