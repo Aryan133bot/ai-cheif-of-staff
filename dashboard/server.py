@@ -85,10 +85,13 @@ def get_email_service(user_id: int):
         from email_service import EmailService
 
         registry = ProviderRegistry()
-        registry.register(GmailProvider(user_id=user_id))
+        gmail = GmailProvider(user_id=user_id)
+        logger.info("Gmail provider configured=%s, authenticated=%s, creds_path=%s", 
+                     gmail.is_configured(), gmail.is_authenticated(), gmail._credentials_path)
+        registry.register(gmail)
         return EmailService(DB_PATH, registry, user_id=user_id)
     except Exception as e:
-        logger.warning("Email processing service unavailable: %s", e)
+        logger.warning("Email processing service unavailable: %s", e, exc_info=True)
         return None
 
 
@@ -512,8 +515,12 @@ def process_emails(user: dict = Depends(get_current_user)):
             status_code=400,
             detail="Email processing service is not available. Check that credentials.json exists."
         )
-    result = svc.process_new_emails(trigger="manual")
-    return result
+    try:
+        result = svc.process_new_emails(trigger="manual")
+        return result
+    except Exception as e:
+        logger.error("Email processing failed for user %d: %s", user["id"], e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Email processing error: {str(e)}")
 
 
 @app.get("/api/emails/status")
