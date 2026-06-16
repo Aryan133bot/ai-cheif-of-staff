@@ -296,7 +296,12 @@ async function processEmails() {
             if (result.tasks_updated) parts.push(`${result.tasks_updated} updated`);
             if (result.emails_skipped) parts.push(`${result.emails_skipped} skipped`);
             if (result.reply_drafts_created) parts.push(`${result.reply_drafts_created} reply drafts queued`);
-            toast(parts.length ? parts.join(', ') : 'No new emails found', 'success');
+            
+            if (result.fetch_errors && result.fetch_errors.length > 0) {
+                toast(result.message || result.fetch_errors.join('; '), 'error');
+            } else {
+                toast(parts.length ? parts.join(', ') : (result.message || 'No new emails found'), 'success');
+            }
             // Refresh whichever view we're on
             navigate();
         } else {

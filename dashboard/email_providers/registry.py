@@ -28,14 +28,24 @@ class ProviderRegistry:
     def fetch_all(self, max_results: int = 50, mode: str = "unread") -> list[FetchedEmail]:
         """Fetch emails from all connected providers."""
         all_emails: list[FetchedEmail] = []
+        errors: list[str] = []
         for provider in self._providers.values():
             if not provider.is_configured():
                 logger.info("Skipping %s — not configured", provider.display_name)
+                errors.append(f"{provider.display_name}: not configured (credentials.json missing)")
+                continue
+            if not provider.is_authenticated():
+                logger.info("Skipping %s — not authenticated", provider.display_name)
+                errors.append(f"{provider.display_name}: not authenticated (go to Settings → Connect Gmail)")
                 continue
             try:
                 emails = provider.fetch_emails(max_results=max_results, mode=mode)
                 logger.info("Fetched %d emails from %s", len(emails), provider.display_name)
                 all_emails.extend(emails)
             except Exception as e:
-                logger.error("Failed to fetch from %s: %s", provider.display_name, e)
+                logger.error("Failed to fetch from %s: %s", provider.display_name, e, exc_info=True)
+                errors.append(f"{provider.display_name}: {str(e)}")
+        
+        # Store errors for the caller to inspect
+        self._last_fetch_errors = errors
         return all_emails

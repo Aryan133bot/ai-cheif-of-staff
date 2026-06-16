@@ -55,9 +55,11 @@ class EmailService:
             logger.info("Fetched %d emails across all providers", len(fetched))
 
             if not fetched:
+                fetch_errors = getattr(self.registry, '_last_fetch_errors', [])
                 db.complete_processing_run(
                     self.db_path, run_id,
                     emails_fetched=0, status="completed",
+                    error_details=json.dumps(fetch_errors) if fetch_errors else None,
                     user_id=self.user_id,
                 )
                 return {
@@ -68,8 +70,10 @@ class EmailService:
                     "emails_skipped": 0,
                     "tasks_created": 0,
                     "tasks_updated": 0,
-                    "errors": 0,
+                    "errors": len(fetch_errors),
                     "reply_drafts_created": 0,
+                    "fetch_errors": fetch_errors,
+                    "message": "No unread emails found in Primary inbox." if not fetch_errors else "; ".join(fetch_errors),
                 }
 
             # Convert to RawEmail for the processor
