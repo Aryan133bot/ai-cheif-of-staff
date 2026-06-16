@@ -549,6 +549,16 @@ def email_history(limit: int = Query(default=20, le=100), user: dict = Depends(g
     return svc.get_history(limit=limit)
 
 
+@app.get("/api/emails/fetched")
+def get_fetched_emails_list(
+    limit: int = Query(default=100, le=500),
+    status: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Get all fetched emails for the current user."""
+    return db.get_fetched_emails(db_path=DB_PATH, user_id=user["id"], limit=limit, status=status)
+
+
 # ─── Gmail OAuth ─────────────────────────────────────────────────────────────
 
 # Global to store oauth flows temporarily for PKCE code verifier matching

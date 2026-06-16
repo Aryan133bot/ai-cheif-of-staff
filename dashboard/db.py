@@ -153,6 +153,26 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fetched_emails (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id         TEXT    NOT NULL,
+                subject          TEXT    NOT NULL DEFAULT '',
+                sender           TEXT    NOT NULL DEFAULT '',
+                body_preview     TEXT    DEFAULT '',
+                received_at      TEXT,
+                thread_id        TEXT,
+                processing_status TEXT   NOT NULL DEFAULT 'skipped',
+                run_id           INTEGER,
+                created_at       TEXT    NOT NULL,
+                user_id          INTEGER NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (run_id) REFERENCES email_processing_runs(id) ON DELETE SET NULL
+            )
+            """
+        )
+
         import os
         is_pg = bool(os.environ.get("DATABASE_URL"))
         
@@ -886,5 +906,57 @@ def get_user_gmail_token(db_path: str, user_id: int) -> str | None:
     try:
         row = conn.execute("SELECT gmail_token FROM users WHERE id = ?", (user_id,)).fetchone()
         return row["gmail_token"] if row else None
+    finally:
+        conn.close()
+
+
+# ─── Fetched emails queries ──────────────────────────────────────────────────
+
+def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: int) -> None:
+    """Save all fetched emails to the database for display."""
+    now = _now_iso()
+    conn = get_db(db_path)
+    try:
+        for e in emails:
+            conn.execute(
+                """
+                INSERT INTO fetched_emails
+                    (email_id, subject, sender, body_preview, received_at, thread_id,
+                     processing_status, run_id, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    e.get("email_id", ""),
+                    e.get("subject", "(no subject)"),
+                    e.get("sender", ""),
+                    (e.get("body", "") or "")[:500],
+                    e.get("received_at", ""),
+                    e.get("thread_id"),
+                    e.get("processing_status", "skipped"),
+                    run_id,
+                    now,
+                    user_id,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_fetched_emails(db_path: str, user_id: int, limit: int = 100, status: str | None = None) -> list[dict]:
+    """Get fetched emails for a user."""
+    conn = get_db(db_path)
+    try:
+        where = "WHERE user_id = ?"
+        params: list = [user_id]
+        if status:
+            where += " AND processing_status = ?"
+            params.append(status)
+        params.append(limit)
+        rows = conn.execute(
+            f"SELECT * FROM fetched_emails {where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

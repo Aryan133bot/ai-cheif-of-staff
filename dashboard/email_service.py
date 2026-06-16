@@ -89,9 +89,45 @@ class EmailService:
                 for e in fetched
             ]
 
+            # Save ALL fetched emails to the database for visibility
+            email_records = [
+                {
+                    "email_id": e.email_id,
+                    "subject": e.subject,
+                    "sender": e.sender,
+                    "body": e.body,
+                    "received_at": str(e.received_at) if e.received_at else "",
+                    "thread_id": e.thread_id,
+                    "processing_status": "pending",
+                }
+                for e in fetched
+            ]
+            db.save_fetched_emails(self.db_path, email_records, run_id, self.user_id)
+
             # Process through the pipeline
             self._ensure_processor()
             results = self._processor.process_batch(raw_emails)
+
+            # Update processing status for each email
+            conn = db.get_db(self.db_path)
+            try:
+                for email, result in zip(fetched, results):
+                    if isinstance(result, dict):
+                        if result.get("skipped"):
+                            status = "skipped"
+                        elif result.get("error"):
+                            status = "error"
+                        else:
+                            status = "processed"
+                    else:
+                        status = "error"
+                    conn.execute(
+                        "UPDATE fetched_emails SET processing_status = ? WHERE email_id = ? AND run_id = ? AND user_id = ?",
+                        (status, email.email_id, run_id, self.user_id),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
 
             # Aggregate results
             processed = 0

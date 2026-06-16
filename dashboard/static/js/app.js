@@ -155,7 +155,7 @@ function closeModal() {
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
-const views = { dashboard: renderDashboard, calendar: renderCalendar, replies: renderReplies, tasks: renderAllTasks, settings: renderSettings };
+const views = { dashboard: renderDashboard, calendar: renderCalendar, inbox: renderInbox, replies: renderReplies, tasks: renderAllTasks, settings: renderSettings };
 
 function navigate() {
     let rawHash = (location.hash || '#dashboard').slice(1);
@@ -438,6 +438,59 @@ async function updateTaskStatus(id, status) {
     } catch (err) {
         toast(err.message, 'error');
     } finally { unlockSubmit(); }
+}
+
+// ─── Inbox View ───────────────────────────────────────────────────────────────
+
+async function renderInbox() {
+    const main = document.getElementById('main-content');
+    main.innerHTML = `
+        <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <h2>Inbox</h2>
+                <p class="page-subtitle">All fetched emails and their processing status</p>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="processEmails()" id="btn-process-emails">Process Emails</button>
+        </div>
+        <div class="page-body">
+            <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
+        </div>`;
+
+    try {
+        const emails = await API.get('/api/emails/fetched?limit=100');
+        
+        let html = '';
+        if (!emails || emails.length === 0) {
+            html = '<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">No emails fetched yet. Click "Process Emails" to sync.</div>';
+        } else {
+            const getStatusColor = (s) => {
+                if (s === 'processed') return 'var(--success)';
+                if (s === 'skipped') return 'var(--text-tertiary)';
+                if (s === 'error') return 'var(--critical)';
+                return 'var(--primary)';
+            };
+
+            const rows = emails.map(e => `
+                <div class="email-row" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1rem; margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div style="font-weight:600; color:var(--text-primary); font-size:1rem; margin-bottom:0.25rem;">${escHtml(e.subject || '(no subject)')}</div>
+                        <span class="pill" style="font-size:0.75rem; padding:0.15rem 0.5rem; border:1px solid ${getStatusColor(e.processing_status)}; color:${getStatusColor(e.processing_status)}; background:transparent;">${e.processing_status}</span>
+                    </div>
+                    <div style="font-size:0.85rem; color:var(--text-secondary);">
+                        <span style="color:var(--text-primary);">${escHtml(e.sender)}</span> • ${new Date(e.received_at).toLocaleString()}
+                    </div>
+                    <div style="font-size:0.85rem; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
+                        ${escHtml(e.body_preview || '')}
+                    </div>
+                </div>
+            `).join('');
+            
+            html = `<div class="inbox-list" style="margin-top:1rem;">${rows}</div>`;
+        }
+        main.querySelector('.page-body').innerHTML = html;
+    } catch (err) {
+        main.querySelector('.page-body').innerHTML = `<div class="auth-error">Failed to load inbox: ${escHtml(err.message)}</div>`;
+    }
 }
 
 // ─── All Tasks View ─────────────────────────────────────────────────────────
