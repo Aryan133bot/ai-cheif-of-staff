@@ -172,6 +172,15 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                state      TEXT PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
 
         import os
         is_pg = bool(os.environ.get("DATABASE_URL"))
@@ -198,6 +207,15 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         ):
             if col not in draft_columns:
                 conn.execute(ddl)
+
+        # Multi-tenant migrations
+        for table in ["tasks", "calendar_events", "reply_drafts", "email_processing_runs", "fetched_emails"]:
+            if "user_id" not in get_columns(table):
+                # We default to 1 for existing data (assuming the first created user gets id 1)
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
+        
+        if "gmail_token" not in get_columns("users"):
+            conn.execute("ALTER TABLE users ADD COLUMN gmail_token TEXT")
 
         conn.commit()
         logger.info("Database schema initialised at %s", db_path)
@@ -379,11 +397,15 @@ def get_calendar_events(
     db_path: str = DEFAULT_DB_PATH,
     start: str | None = None,
     end: str | None = None,
+    user_id: int | None = None,
 ) -> list[dict]:
     conn = get_db(db_path)
     try:
         clauses = []
         params: list = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
         if start:
             clauses.append("end_time >= ?")
             params.append(start)
@@ -412,19 +434,20 @@ def get_calendar_event(db_path: str, event_id: int, user_id: int = None) -> dict
         conn.close()
 
 
-def create_calendar_event(db_path: str, data: dict) -> dict:
+def create_calendar_event(db_path: str, data: dict, user_id: int) -> dict:
     now = _now_iso()
     conn = get_db(db_path)
     try:
         cursor = conn.execute(
             """
             INSERT INTO calendar_events
-                (title, description, start_time, end_time, all_day,
+                (user_id, title, description, start_time, end_time, all_day,
                  event_type, urgency, linked_task_id, color,
                  reminder_minutes, gcal_event_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             """,
             (
+                user_id,
                 data["title"],
                 data.get("description", ""),
                 data["start_time"],
@@ -449,7 +472,7 @@ def create_calendar_event(db_path: str, data: dict) -> dict:
         conn.close()
 
 
-def update_calendar_event(db_path: str, event_id: int, data: dict) -> dict | None:
+def update_calendar_event(db_path: str, event_id: int, data: dict, user_id: int = None) -> dict | None:
     now = _now_iso()
     conn = get_db(db_path)
     try:
@@ -470,13 +493,20 @@ def update_calendar_event(db_path: str, event_id: int, data: dict) -> dict | Non
         sets.append("updated_at = ?")
         params.append(now)
         params.append(event_id)
+        
+        where_user = " AND user_id = ?" if user_id else ""
+        if user_id:
+            params.append(user_id)
 
         conn.execute(
-            f"UPDATE calendar_events SET {', '.join(sets)} WHERE id = ?",
+            f"UPDATE calendar_events SET {', '.join(sets)} WHERE id = ?{where_user}",
             params,
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM calendar_events WHERE id = ?", (event_id,)).fetchone()
+        if user_id:
+            row = conn.execute("SELECT * FROM calendar_events WHERE id = ? AND user_id = ?", (event_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM calendar_events WHERE id = ?", (event_id,)).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -495,19 +525,24 @@ def delete_calendar_event(db_path: str, event_id: int, user_id: int = None) -> b
         conn.close()
 
 
-def sync_tasks_to_calendar(db_path: str = DEFAULT_DB_PATH) -> int:
+def sync_tasks_to_calendar(db_path: str = DEFAULT_DB_PATH, user_id: int = None) -> int:
     """Create calendar events from tasks that have deadline dates but no linked event."""
     conn = get_db(db_path)
     try:
+        where_user = " AND t.user_id = ?" if user_id else ""
+        params = (user_id,) if user_id else ()
+        
         # Find tasks with deadlines that don't already have a calendar event
         rows = conn.execute(
-            """
+            f"""
             SELECT t.* FROM tasks t
             LEFT JOIN calendar_events ce ON ce.linked_task_id = t.id
             WHERE t.deadline_date IS NOT NULL
               AND t.status NOT IN ('completed', 'dismissed')
               AND ce.id IS NULL
-            """
+              {where_user}
+            """,
+            params
         ).fetchall()
 
         now = _now_iso()
@@ -532,16 +567,19 @@ def sync_tasks_to_calendar(db_path: str = DEFAULT_DB_PATH) -> int:
                 "medium": "#6366f1",
                 "low": "#64748b",
             }
+            
+            event_user_id = user_id if user_id else task.get("user_id")
 
             conn.execute(
                 """
                 INSERT INTO calendar_events
-                    (title, description, start_time, end_time, all_day,
+                    (user_id, title, description, start_time, end_time, all_day,
                      event_type, urgency, linked_task_id, color,
                      reminder_minutes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    event_user_id,
                     task["title"],
                     f"From email: {task['source_subject']}\nQuote: {task['source_quote']}",
                     start,
@@ -594,13 +632,19 @@ def get_reply_drafts(
         conn.close()
 
 
-def get_reply_draft(db_path: str, draft_id: int) -> dict | None:
+def get_reply_draft(db_path: str, draft_id: int, user_id: int = None) -> dict | None:
     conn = get_db(db_path)
     try:
-        row = conn.execute(
-            "SELECT * FROM reply_drafts WHERE id = ?",
-            (draft_id,),
-        ).fetchone()
+        if user_id:
+            row = conn.execute(
+                "SELECT * FROM reply_drafts WHERE id = ? AND user_id = ?",
+                (draft_id, user_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM reply_drafts WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -918,6 +962,10 @@ def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: 
     conn = get_db(db_path)
     try:
         for e in emails:
+            email_id = e.get("email_id", "")
+            existing = conn.execute("SELECT id FROM fetched_emails WHERE email_id = ? AND user_id = ?", (email_id, user_id)).fetchone()
+            if existing:
+                continue
             conn.execute(
                 """
                 INSERT INTO fetched_emails
@@ -926,7 +974,7 @@ def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    e.get("email_id", ""),
+                    email_id,
                     e.get("subject", "(no subject)"),
                     e.get("sender", ""),
                     (e.get("body", "") or "")[:500],
@@ -958,5 +1006,32 @@ def get_fetched_emails(db_path: str, user_id: int, limit: int = 100, status: str
             params,
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def save_oauth_state(db_path: str, state: str, user_id: int):
+    conn = get_db(db_path)
+    try:
+        # Cleanup old states (older than 1 hour)
+        one_hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        conn.execute("DELETE FROM oauth_states WHERE created_at < ?", (one_hour_ago,))
+        
+        conn.execute(
+            "INSERT INTO oauth_states (state, user_id, created_at) VALUES (?, ?, ?)",
+            (state, user_id, _now_iso())
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_user_for_oauth_state(db_path: str, state: str) -> int | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT user_id FROM oauth_states WHERE state = ?", (state,)).fetchone()
+        if row:
+            conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+            conn.commit()
+            return row["user_id"] if isinstance(row, dict) else row[0]
+        return None
     finally:
         conn.close()

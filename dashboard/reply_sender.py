@@ -36,7 +36,7 @@ def send_approved_reply(db_path: str, draft: dict, user_id: int) -> dict:
     import json
     
     token_json = db.get_user_gmail_token(db_path, user_id)
-    if not token_json or "https://www.googleapis.com/auth/gmail.send" not in token_json:
+    if not token_json:
         raise PermissionError(
             "Gmail send permission is missing. Disconnect and reconnect Gmail in Settings "
             "to authorize sending replies."

@@ -178,7 +178,7 @@ class EmailService:
                         )
                     ]
                     drafts_created = auto_create_reply_drafts_for_emails(
-                        self.db_path, processed_emails
+                        self.db_path, processed_emails, self.user_id
                     )
                 except Exception as draft_err:
                     logger.error("Auto reply draft creation failed: %s", draft_err)

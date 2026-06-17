@@ -39,9 +39,9 @@ class GmailProvider(EmailProvider):
         return self._credentials_path.exists()
         
     def _get_token(self) -> str | None:
-        from db import get_user_gmail_token
+        from db import get_user_gmail_token, DEFAULT_DB_PATH
         import os
-        db_path = os.getenv("DASHBOARD_DB_PATH", "phase1_tasks.db")
+        db_path = os.getenv("DB_PATH", DEFAULT_DB_PATH)
         return get_user_gmail_token(db_path, self.user_id)
 
     def is_authenticated(self) -> bool:

@@ -29,9 +29,11 @@
 
     /* Accent — Vibrant Neon Blue */
     --accent:           #3B82F6;
+    --primary:          #3B82F6;
     --accent-hover:     #60A5FA;
     --accent-subtle:    rgba(59, 130, 246, 0.15);
     --accent-glow:      rgba(59, 130, 246, 0.4);
+    --border-color:     rgba(255, 255, 255, 0.08);
 
     /* Urgency & Status colors - Glowing Neons */
     --critical:         #F43F5E; /* Neon Rose */
@@ -197,6 +199,29 @@ input:focus, select:focus, textarea:focus {
     transition: color var(--transition-fast);
 }
 
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all var(--transition-fast);
+}
+
+.nav-item:hover, .nav-item:focus-visible {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.nav-item.active {
+    background: var(--accent-subtle);
+    color: var(--text-primary);
+}
+
 .nav-item.active .nav-svg {
     color: var(--accent);
 }
@@ -220,12 +245,59 @@ input:focus, select:focus, textarea:focus {
     color: var(--text-tertiary);
 }
 
-/* ── Main Content ────────────────────────────────────────────────────────── */
+/* ── Main Content & Mobile Header ────────────────────────────────────────── */
+.mobile-header {
+    display: none;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: var(--glass-bg);
+    border-bottom: 1px solid var(--glass-border);
+    position: sticky;
+    top: 0;
+    z-index: 60;
+}
+
+.mobile-header h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0;
+}
+
 .main-content {
     flex: 1;
     margin-left: var(--sidebar-width);
     padding: 0;
     min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+    }
+    .sidebar.open {
+        transform: translateX(0);
+    }
+    .main-content {
+        margin-left: 0;
+    }
+    .mobile-header {
+        display: flex;
+    }
+    .page-header {
+        top: 60px; /* Below mobile header */
+    }
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(2px);
+        z-index: 90;
+    }
+    .sidebar-overlay.open {
+        display: block;
+    }
 }
 
 .page-header {
@@ -442,6 +514,12 @@ input:focus, select:focus, textarea:focus {
 
 .task-item:hover .task-actions {
     opacity: 1;
+}
+
+@media (hover: none), (max-width: 768px) {
+    .task-actions {
+        opacity: 1;
+    }
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */

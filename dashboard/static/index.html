@@ -109,8 +109,19 @@
             </div>
         </aside>
 
+        <!-- ── Sidebar Overlay ─────────────────────────────── -->
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileMenu()"></div>
+
         <!-- ── Main Content ────────────────────────────────── -->
         <main class="main-content" id="main-content">
+            <!-- ── Mobile Header ───────────────────────────── -->
+            <header class="mobile-header">
+                <button class="btn icon-btn" onclick="toggleMobileMenu()">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                </button>
+                <h2>Chief of Staff</h2>
+            </header>
+
             <!-- Dynamically rendered by JS -->
             <div class="loading-overlay" id="initial-loader">
                 <div class="spinner"></div>

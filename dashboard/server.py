@@ -161,12 +161,17 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception: %s", exc, exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "traceback": traceback.format_exc()}
+        content={"detail": "Internal Server Error"}
     )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://ai-cheif-of-staff.onrender.com",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -238,28 +243,13 @@ class ApproveReplyBody(BaseModel):
 
 
 # ─── Auth endpoints (no auth required) ──────────────────────────────────────
-@app.get("/api/dev/reset-db")
-def dev_reset_db():
-    """Temporary endpoint to wipe the DB file on Render"""
-    try:
-        import os
-        import db
-        
-        # Close all connections in the pool if possible (sqlite doesn't strictly need this, but good practice)
-        if os.path.exists(DB_PATH):
-            os.remove(DB_PATH)
-        
-        # Reinitialize
-        db.init_db(DB_PATH)
-        return {"ok": True, "message": "Database successfully wiped and recreated!"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+# (Removed unauthenticated reset-db endpoint)
 
 
 @app.get("/api/auth/status")
 def auth_status():
     """Check if any account exists — tells frontend to show setup or login."""
-    return {"has_account": True}  # Always return True so the UI shows Login instead of Setup
+    return {"has_account": auth.has_any_account(DB_PATH)}
 
 
 @app.post("/api/auth/register")
@@ -320,6 +310,7 @@ def list_tasks(
         deadline_type=deadline_type,
         limit=limit,
         offset=offset,
+        user_id=user["id"],
     )
 
 
@@ -353,7 +344,7 @@ def dashboard_stats(user: dict = Depends(get_current_user)):
 
 @app.get("/api/calendar/events")
 def list_events(start: str | None = None, end: str | None = None, user: dict = Depends(get_current_user)):
-    return db.get_calendar_events(db_path=DB_PATH, start=start, end=end)
+    return db.get_calendar_events(db_path=DB_PATH, start=start, end=end, user_id=user["id"])
 
 
 @app.post("/api/calendar/events", status_code=201)
@@ -367,7 +358,7 @@ def create_event(body: CalendarEventCreate, user: dict = Depends(get_current_use
         if gcal_id:
             data["gcal_event_id"] = gcal_id
 
-    return db.create_calendar_event(db_path=DB_PATH, data=data)
+    return db.create_calendar_event(db_path=DB_PATH, data=data, user_id=user["id"])
 
 
 @app.patch("/api/calendar/events/{event_id}")
@@ -375,7 +366,7 @@ def update_event(event_id: int, body: CalendarEventUpdate, user: dict = Depends(
     data = body.model_dump(exclude_none=True)
 
     # Retrieve current event details
-    current = db.get_calendar_event(DB_PATH, event_id)
+    current = db.get_calendar_event(DB_PATH, event_id, user_id=user["id"])
     if not current:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
 
@@ -396,7 +387,7 @@ def update_event(event_id: int, body: CalendarEventUpdate, user: dict = Depends(
             if new_gcal_id:
                 data["gcal_event_id"] = new_gcal_id
 
-    result = db.update_calendar_event(db_path=DB_PATH, event_id=event_id, data=data)
+    result = db.update_calendar_event(db_path=DB_PATH, event_id=event_id, data=data, user_id=user["id"])
     if result is None:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
     return result
@@ -404,7 +395,7 @@ def update_event(event_id: int, body: CalendarEventUpdate, user: dict = Depends(
 
 @app.delete("/api/calendar/events/{event_id}")
 def delete_event(event_id: int, user: dict = Depends(get_current_user)):
-    current = db.get_calendar_event(DB_PATH, event_id)
+    current = db.get_calendar_event(DB_PATH, event_id, user_id=user["id"])
     if not current:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
 
@@ -414,7 +405,7 @@ def delete_event(event_id: int, user: dict = Depends(get_current_user)):
         if gcal_id:
             gcal.delete_gcal_event(gcal_id)
 
-    ok = db.delete_calendar_event(db_path=DB_PATH, event_id=event_id)
+    ok = db.delete_calendar_event(db_path=DB_PATH, event_id=event_id, user_id=user["id"])
     if not ok:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
     return {"ok": True}
@@ -423,7 +414,7 @@ def delete_event(event_id: int, user: dict = Depends(get_current_user)):
 @app.post("/api/calendar/sync-tasks")
 def sync_tasks(user: dict = Depends(get_current_user)):
     """Import task deadlines as calendar events."""
-    created = db.sync_tasks_to_calendar(db_path=DB_PATH)
+    created = db.sync_tasks_to_calendar(db_path=DB_PATH, user_id=user["id"])
     return {"ok": True, "events_created": created}
 
 
@@ -438,10 +429,10 @@ def sync_google_calendar(user: dict = Depends(get_current_user)):
         )
 
     # 1. Sync any tasks that have deadlines to local events first
-    local_tasks_synced = db.sync_tasks_to_calendar(db_path=DB_PATH)
+    local_tasks_synced = db.sync_tasks_to_calendar(db_path=DB_PATH, user_id=user["id"])
 
     # 2. Upload any local events that don't have a gcal_event_id, and push local updates
-    local_events = db.get_calendar_events(db_path=DB_PATH)
+    local_events = db.get_calendar_events(db_path=DB_PATH, user_id=user["id"])
     uploaded = 0
     updated_remote = 0
 
@@ -450,7 +441,7 @@ def sync_google_calendar(user: dict = Depends(get_current_user)):
         if not gcal_id:
             new_id = gcal.create_gcal_event(dict(event))
             if new_id:
-                db.update_calendar_event(DB_PATH, event["id"], {"gcal_event_id": new_id})
+                db.update_calendar_event(DB_PATH, event["id"], {"gcal_event_id": new_id}, user_id=user["id"])
                 uploaded += 1
         else:
             gcal.update_gcal_event(gcal_id, dict(event))
@@ -492,7 +483,7 @@ def sync_google_calendar(user: dict = Depends(get_current_user)):
                 "urgency": "medium",
                 "color": "#3B82F6",
                 "gcal_event_id": g_id,
-            })
+            }, user_id=user["id"])
             downloaded += 1
 
     return {
@@ -595,18 +586,15 @@ def connect_gmail(request: Request, user: dict = Depends(get_current_user)):
     try:
         from google_auth_oauthlib.flow import Flow
         
-        # Disable HTTPS requirement for oauthlib when running locally
-        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-
         # Must exactly match the Authorized Redirect URI in Google Cloud Console
         # For Desktop apps, http://localhost:8000/api/gmail/callback is valid.
         redirect_uri = str(request.base_url).rstrip("/") + "/api/gmail/callback"
         
         flow = Flow.from_client_secrets_file(str(creds_path), scopes=GMAIL_SCOPES)
         flow.redirect_uri = redirect_uri
-        
+
         auth_url, state = flow.authorization_url(prompt="consent", access_type="offline")
-        _oauth_flows[state] = (flow, user["id"])
+        db.save_oauth_state(DB_PATH, state, user["id"])
         
         return {"ok": True, "auth_url": auth_url}
     except Exception as e:
@@ -625,15 +613,23 @@ def gmail_callback(request: Request, state: str = None, code: str = None, error:
     sys.path.insert(0, str(_email_proc_dir))
     from gmail_scopes import GMAIL_SCOPES
 
+    import urllib.parse
     try:
-        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-        flow_data = _oauth_flows.pop(state, None)
-        if not flow_data:
+        user_id = db.get_user_for_oauth_state(DB_PATH, state)
+        if not user_id:
             logger.error("OAuth flow state not found or expired")
             return RedirectResponse(url="/#settings?error=session_expired")
+            
+        creds_path = Path(os.getenv("GMAIL_CREDENTIALS_PATH", _email_proc_dir / "credentials.json"))
+        if not creds_path.exists():
+            return RedirectResponse(url="/#settings?error=missing_credentials")
+            
+        from google_auth_oauthlib.flow import Flow
+        redirect_uri = str(request.base_url).rstrip("/") + "/api/gmail/callback"
+        flow = Flow.from_client_secrets_file(str(creds_path), scopes=GMAIL_SCOPES)
+        flow.redirect_uri = redirect_uri
         
         # Fetch the token using the full authorization response URL
-        flow, user_id = flow_data
         flow.fetch_token(authorization_response=str(request.url))
         
         creds = flow.credentials
@@ -643,7 +639,7 @@ def gmail_callback(request: Request, state: str = None, code: str = None, error:
         return RedirectResponse(url="/#settings")
     except Exception as e:
         logger.error("OAuth callback failed: %s", e)
-        return RedirectResponse(url=f"/#settings?error={str(e)}")
+        return RedirectResponse(url=f"/#settings?error={urllib.parse.quote(str(e))}")
 
 
 @app.post("/api/gmail/disconnect")
@@ -715,7 +711,7 @@ def approve_reply(
     """Approve a draft and send it via Gmail."""
     db.reset_stale_sending_drafts(DB_PATH)
 
-    existing = db.get_reply_draft(DB_PATH, draft_id)
+    existing = db.get_reply_draft(DB_PATH, draft_id, user_id=user["id"])
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
     if existing.get("status") == "sent":
@@ -759,7 +755,7 @@ def approve_reply(
 
 @app.delete("/api/replies/{draft_id}")
 def discard_reply(draft_id: int, user: dict = Depends(get_current_user)):
-    ok = db.delete_reply_draft(DB_PATH, draft_id)
+    ok = db.delete_reply_draft(DB_PATH, draft_id, user_id=user["id"])
     if not ok:
         raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
     return {"ok": True}

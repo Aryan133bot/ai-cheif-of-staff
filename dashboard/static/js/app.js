@@ -126,7 +126,7 @@ function toast(message, type = 'info') {
     setTimeout(() => {
         el.classList.add('hiding');
         setTimeout(() => el.remove(), 250);
-    }, 3500);
+    }, 5000);
 }
 
 // ─── Modal ──────────────────────────────────────────────────────────────────
@@ -157,10 +157,23 @@ function closeModal() {
 
 const views = { dashboard: renderDashboard, calendar: renderCalendar, inbox: renderInbox, replies: renderReplies, tasks: renderAllTasks, settings: renderSettings };
 
+function toggleMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.toggle('open');
+    if (overlay) overlay.classList.toggle('open');
+}
+
 function navigate() {
     let rawHash = (location.hash || '#dashboard').slice(1);
     let [hashPath, query] = rawHash.split('?');
     const view = views[hashPath] || views.dashboard;
+
+    // Close mobile menu on navigate
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
 
     // Show error toast if redirected with ?error=
     if (query && query.includes('error=')) {
@@ -471,7 +484,7 @@ async function renderInbox() {
             };
 
             const rows = emails.map(e => `
-                <div class="email-row" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1rem; margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+                <div class="email-row" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1rem; margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.5rem; cursor:pointer;" onclick="viewEmailDetails(${e.id})">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div style="font-weight:600; color:var(--text-primary); font-size:1rem; margin-bottom:0.25rem;">${escHtml(e.subject || '(no subject)')}</div>
                         <span class="pill" style="font-size:0.75rem; padding:0.15rem 0.5rem; border:1px solid ${getStatusColor(e.processing_status)}; color:${getStatusColor(e.processing_status)}; background:transparent;">${e.processing_status}</span>
@@ -485,12 +498,35 @@ async function renderInbox() {
                 </div>
             `).join('');
             
+            // Store fetched emails for the modal
+            window._fetchedEmails = emails;
+            
             html = `<div class="inbox-list" style="margin-top:1rem;">${rows}</div>`;
         }
         main.querySelector('.page-body').innerHTML = html;
     } catch (err) {
-        main.querySelector('.page-body').innerHTML = `<div class="auth-error">Failed to load inbox: ${escHtml(err.message)}</div>`;
+        main.querySelector('.page-body').innerHTML = `<div class="error" style="color:var(--critical); padding:2rem; text-align:center;">Failed to load inbox: ${escHtml(err.message)}</div>`;
     }
+}
+
+function viewEmailDetails(id) {
+    if (!window._fetchedEmails) return;
+    const email = window._fetchedEmails.find(e => e.id === id);
+    if (!email) return;
+
+    const bodyHtml = `
+        <div style="display:flex; flex-direction:column; gap:1rem;">
+            <div>
+                <strong>From:</strong> ${escHtml(email.sender)}<br>
+                <strong>Date:</strong> ${new Date(email.received_at).toLocaleString()}<br>
+                <strong>Status:</strong> ${email.processing_status}
+            </div>
+            <div style="background:var(--bg-primary); padding:1rem; border-radius:0.5rem; white-space:pre-wrap; font-family:monospace; font-size:0.85rem; max-height:400px; overflow-y:auto;">
+                ${escHtml(email.body || email.body_preview || 'No body content available')}
+            </div>
+        </div>
+    `;
+    openModal(email.subject || '(no subject)', bodyHtml, '<button class="btn btn-secondary" onclick="closeModal()">Close</button>');
 }
 
 // ─── All Tasks View ─────────────────────────────────────────────────────────
@@ -808,11 +844,17 @@ function openEventModal(date, time) {
 
 async function saveNewEvent() {
     const date = document.getElementById('evt-date').value;
+    const start = document.getElementById('evt-start').value;
+    const end = document.getElementById('evt-end').value;
+    
+    if (!date || !start || !end) { toast('Date, start time, and end time are required', 'error'); return; }
+    if (start >= end) { toast('Start time must be before end time', 'error'); return; }
+
     const data = {
         title: document.getElementById('evt-title').value.trim(),
         description: document.getElementById('evt-desc').value.trim(),
-        start_time: `${date}T${document.getElementById('evt-start').value}:00`,
-        end_time: `${date}T${document.getElementById('evt-end').value}:00`,
+        start_time: `${date}T${start}:00`,
+        end_time: `${date}T${end}:00`,
         event_type: document.getElementById('evt-type').value,
         urgency: document.getElementById('evt-urgency').value,
         color: document.getElementById('evt-color').value,
@@ -896,15 +938,23 @@ async function openEditEventModal(eventId) {
 async function saveEditEvent(eventId) {
     if (!lockSubmit()) return;
     const date = document.getElementById('evt-date').value;
+    const start = document.getElementById('evt-start').value;
+    const end = document.getElementById('evt-end').value;
+    
+    if (!date || !start || !end) { unlockSubmit(); toast('Date, start time, and end time are required', 'error'); return; }
+    if (start >= end) { unlockSubmit(); toast('Start time must be before end time', 'error'); return; }
+
     const data = {
         title: document.getElementById('evt-title').value.trim(),
         description: document.getElementById('evt-desc').value.trim(),
-        start_time: `${date}T${document.getElementById('evt-start').value}:00`,
-        end_time: `${date}T${document.getElementById('evt-end').value}:00`,
+        start_time: `${date}T${start}:00`,
+        end_time: `${date}T${end}:00`,
         event_type: document.getElementById('evt-type').value,
         urgency: document.getElementById('evt-urgency').value,
         color: document.getElementById('evt-color').value,
     };
+    if (!data.title) { unlockSubmit(); toast('Event title is required', 'error'); return; }
+
     try {
         await API.patch(`/api/calendar/events/${eventId}`, data);
         closeModal();
@@ -915,6 +965,7 @@ async function saveEditEvent(eventId) {
 }
 
 async function deleteEvent(eventId) {
+    if (!confirm('Are you sure you want to delete this event?')) return;
     try {
         await API.del(`/api/calendar/events/${eventId}`);
         closeModal();

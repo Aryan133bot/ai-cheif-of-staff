@@ -8,14 +8,18 @@ logger = logging.getLogger(__name__)
 def is_postgres():
     return bool(os.environ.get("DATABASE_URL"))
 
+_pg_pool = None
+
 def get_connection(db_path: str):
     """Returns a universal connection object (SQLite or PostgreSQL)"""
     url = os.environ.get("DATABASE_URL")
     if url:
-        import psycopg2
-        from psycopg2.extras import DictCursor
-        conn = psycopg2.connect(url, cursor_factory=DictCursor)
-        return PgConnection(conn)
+        global _pg_pool
+        if _pg_pool is None:
+            from psycopg2.pool import SimpleConnectionPool
+            _pg_pool = SimpleConnectionPool(1, 20, url)
+        conn = _pg_pool.getconn()
+        return PgConnection(conn, pool=_pg_pool)
     else:
         conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
         conn.row_factory = sqlite3.Row
@@ -47,16 +51,22 @@ class SqliteConnection:
 
 
 class PgConnection:
-    def __init__(self, conn):
+    def __init__(self, conn, pool=None):
         self.conn = conn
+        self.pool = pool
         
     def execute(self, sql, params=()):
-        # Convert ? to %s
-        pg_sql = sql.replace("?", "%s")
+        # Convert ? to %s safely ignoring quotes
+        parts = sql.split("'")
+        for i in range(0, len(parts), 2):
+            parts[i] = parts[i].replace("?", "%s")
+        pg_sql = "'".join(parts)
+        
         # Fix AUTOINCREMENT syntax for PostgreSQL
         pg_sql = pg_sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
         
-        cursor = self.conn.cursor()
+        from psycopg2.extras import DictCursor
+        cursor = self.conn.cursor(cursor_factory=DictCursor)
         cursor.execute(pg_sql, params)
         return PgCursor(cursor)
         
@@ -64,7 +74,10 @@ class PgConnection:
         self.conn.commit()
         
     def close(self):
-        self.conn.close()
+        if self.pool:
+            self.pool.putconn(self.conn)
+        else:
+            self.conn.close()
 
     def __enter__(self):
         return self
@@ -72,6 +85,8 @@ class PgConnection:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             self.commit()
+        else:
+            self.conn.rollback()
         self.close()
 
 
@@ -83,16 +98,14 @@ class PgCursor:
         return iter(self.cursor)
         
     def fetchone(self):
-        try:
+        if self.cursor.description:
             return self.cursor.fetchone()
-        except Exception:
-            return None
+        return None
             
     def fetchall(self):
-        try:
+        if self.cursor.description:
             return self.cursor.fetchall()
-        except Exception:
-            return []
+        return []
 
     @property
     def rowcount(self):

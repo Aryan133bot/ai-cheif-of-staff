@@ -21,7 +21,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 logger = logging.getLogger(__name__)
 
 # JWT configuration
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "chief-of-staff-jwt-secret-key-2026-v2")  # Override in production!
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not JWT_SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY environment variable must be set for security.")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 

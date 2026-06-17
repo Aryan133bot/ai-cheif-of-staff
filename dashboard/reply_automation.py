@@ -8,7 +8,7 @@ from reply_generator import generate_reply_text
 logger = logging.getLogger(__name__)
 
 
-def auto_create_reply_drafts_for_emails(db_path: str, emails) -> int:
+def auto_create_reply_drafts_for_emails(db_path: str, emails, user_id: int) -> int:
     """
     For each processed email, create a pending reply draft per linked task
     when no pending draft already exists.
@@ -46,6 +46,7 @@ def auto_create_reply_drafts_for_emails(db_path: str, emails) -> int:
                     "gmail_message_id": email.email_id,
                     "gmail_thread_id": getattr(email, "thread_id", None),
                 },
+                user_id=user_id,
             )
             created += 1
             logger.info(
