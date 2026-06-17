@@ -85,10 +85,10 @@ def generate_reply_text(
 
             client = genai.Client(api_key=gemini_key)
             response = client.models.generate_content(
-                model="gemini-3.1-pro",
+                model="gemini-1.5-pro",
                 contents=f"{REPLY_SYSTEM_PROMPT}\n\n---\n\n{user_message}",
             )
-            return response.text.strip(), "gemini-3.1-pro", 0.85
+            return response.text.strip(), "gemini-1.5-pro", 0.85
         except Exception as e:
             logger.error("Gemini reply generation failed: %s — trying next provider", e)
             last_error = f"Gemini Error: {str(e)}"
