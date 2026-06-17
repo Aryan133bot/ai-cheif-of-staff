@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 # JWT configuration
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not JWT_SECRET_KEY:
-    raise ValueError("JWT_SECRET_KEY environment variable must be set for security.")
+    logger.warning("JWT_SECRET_KEY environment variable not set. Using insecure fallback. Please set this in production!")
+    JWT_SECRET_KEY = "fallback-insecure-secret-key-change-in-prod-12345"
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 
