@@ -324,6 +324,21 @@ def review_queue(limit: int = Query(default=50, le=200), user: dict = Depends(ge
     return db.get_review_queue(db_path=DB_PATH, limit=limit, user_id=user["id"])
 
 
+class TaskCreate(BaseModel):
+    title: str
+    deadline_type: str = "task"
+    urgency: str = "medium"
+    source_quote: str = "Manually created"
+    deadline_date: str | None = None
+    assigned_to: str | None = None
+    counterparty: str | None = None
+    action_needed: str | None = None
+
+@app.post("/api/tasks", status_code=201)
+def create_task(body: TaskCreate, user: dict = Depends(get_current_user)):
+    data = body.model_dump(exclude_none=True)
+    return db.create_task(db_path=DB_PATH, data=data, user_id=user["id"])
+
 @app.patch("/api/tasks/{task_id}/status")
 def update_status(task_id: int, body: StatusUpdate, user: dict = Depends(get_current_user)):
     try:
@@ -542,12 +557,21 @@ def email_history(limit: int = Query(default=20, le=100), user: dict = Depends(g
 
 @app.get("/api/emails/fetched")
 def get_fetched_emails_list(
-    limit: int = Query(default=100, le=500),
+    limit: int = Query(default=51, le=501),
+    offset: int = Query(default=0, ge=0),
     status: str | None = None,
+    category: str | None = None,
     user: dict = Depends(get_current_user),
 ):
-    """Get all fetched emails for the current user."""
-    return db.get_fetched_emails(db_path=DB_PATH, user_id=user["id"], limit=limit, status=status)
+    """Get fetched emails for the current user with pagination support."""
+    return db.get_fetched_emails(
+        db_path=DB_PATH,
+        user_id=user["id"],
+        limit=limit,
+        offset=offset,
+        status=status,
+        category=category,
+    )
 
 
 # ─── Gmail OAuth ─────────────────────────────────────────────────────────────

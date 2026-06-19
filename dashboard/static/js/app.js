@@ -155,7 +155,7 @@ function closeModal() {
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
-const views = { dashboard: renderDashboard, calendar: renderCalendar, inbox: renderInbox, replies: renderReplies, tasks: renderAllTasks, settings: renderSettings };
+const views = { dashboard: renderDashboard, calendar: renderCalendar, 'work-mails': renderWorkMails, 'non-work-mails': renderNonWorkMails, replies: renderReplies, commitments: renderCommitments, settings: renderSettings };
 
 function toggleMobileMenu() {
     const sidebar = document.getElementById('sidebar');
@@ -453,15 +453,30 @@ async function updateTaskStatus(id, status) {
     } finally { unlockSubmit(); }
 }
 
-// ─── Inbox View ───────────────────────────────────────────────────────────────
+// ─── Work / Non-Work Mails View ─────────────────────────────────────────────
 
-async function renderInbox() {
+async function renderWorkMails() {
+    await renderEmailList('work', 'Work Mails', 'Categorized professional communication');
+}
+
+async function renderNonWorkMails() {
+    await renderEmailList('miscellaneous', 'Non-Work Mails', 'Newsletters, alerts, and miscellaneous');
+}
+
+// Per-view email store (keyed by category) — fixes shared global state bug
+const _emailStore = {};
+
+async function renderEmailList(category, title, subtitle) {
     const main = document.getElementById('main-content');
+    // Track pagination state per category
+    _emailStore[category] = _emailStore[category] || { emails: [], offset: 0, hasMore: false };
+    const PAGE_SIZE = 50;
+
     main.innerHTML = `
         <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
             <div>
-                <h2>Inbox</h2>
-                <p class="page-subtitle">All fetched emails and their processing status</p>
+                <h2>${escHtml(title)}</h2>
+                <p class="page-subtitle">${escHtml(subtitle)}</p>
             </div>
             <button class="btn btn-primary btn-sm" onclick="processEmails()" id="btn-process-emails">Process Emails</button>
         </div>
@@ -469,74 +484,125 @@ async function renderInbox() {
             <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
         </div>`;
 
-    try {
-        const emails = await API.get('/api/emails/fetched?limit=100');
-        
-        let html = '';
-        if (!emails || emails.length === 0) {
-            html = '<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">No emails fetched yet. Click "Process Emails" to sync.</div>';
-        } else {
-            const getStatusColor = (s) => {
-                if (s === 'processed') return 'var(--success)';
-                if (s === 'skipped') return 'var(--text-tertiary)';
-                if (s === 'error') return 'var(--critical)';
-                return 'var(--primary)';
-            };
+    await _loadEmailPage(category, PAGE_SIZE, 0, true);
+}
 
-            const rows = emails.map(e => `
-                <div class="email-row" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1rem; margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.5rem; cursor:pointer;" onclick="viewEmailDetails(${e.id})">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                        <div style="font-weight:600; color:var(--text-primary); font-size:1rem; margin-bottom:0.25rem;">${escHtml(e.subject || '(no subject)')}</div>
-                        <span class="pill" style="font-size:0.75rem; padding:0.15rem 0.5rem; border:1px solid ${getStatusColor(e.processing_status)}; color:${getStatusColor(e.processing_status)}; background:transparent;">${e.processing_status}</span>
-                    </div>
-                    <div style="font-size:0.85rem; color:var(--text-secondary);">
-                        <span style="color:var(--text-primary);">${escHtml(e.sender)}</span> • ${new Date(e.received_at).toLocaleString()}
-                    </div>
-                    <div style="font-size:0.85rem; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
-                        ${escHtml(e.body_preview || '')}
-                    </div>
-                </div>
-            `).join('');
-            
-            // Store fetched emails for the modal
-            window._fetchedEmails = emails;
-            
-            html = `<div class="inbox-list" style="margin-top:1rem;">${rows}</div>`;
+async function _loadEmailPage(category, limit, offset, replace) {
+    const main = document.getElementById('main-content');
+    const pageBody = main.querySelector('.page-body');
+    if (!pageBody) return;
+
+    try {
+        const emails = await API.get(`/api/emails/fetched?limit=${limit + 1}&offset=${offset}&category=${category}`);
+        const hasMore = emails.length > limit;
+        const page = hasMore ? emails.slice(0, limit) : emails;
+
+        // Update scoped store
+        if (replace) {
+            _emailStore[category] = { emails: page, offset, hasMore };
+        } else {
+            _emailStore[category].emails = [..._emailStore[category].emails, ...page];
+            _emailStore[category].offset = offset;
+            _emailStore[category].hasMore = hasMore;
         }
-        main.querySelector('.page-body').innerHTML = html;
+
+        const allEmails = _emailStore[category].emails;
+
+        if (!allEmails || allEmails.length === 0) {
+            pageBody.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">No emails fetched yet. Click "Process Emails" to sync.</div>';
+            return;
+        }
+
+        const getStatusColor = (s) => {
+            if (s === 'processed') return 'var(--success)';
+            if (s === 'skipped') return 'var(--text-tertiary)';
+            if (s === 'error') return 'var(--critical)';
+            return 'var(--primary)';
+        };
+
+        // Fix #8: safe date formatting guard
+        const formatDate = (iso) => {
+            if (!iso || iso === 'None' || iso === '') return 'Unknown date';
+            const d = new Date(iso);
+            return isNaN(d.getTime()) ? 'Unknown date' : d.toLocaleString();
+        };
+
+        const rows = allEmails.map(e => `
+            <div class="email-row" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1rem; margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.5rem; cursor:pointer;"
+                 onclick="_openEmailModal('${category}', ${e.id})">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div style="font-weight:600; color:var(--text-primary); font-size:1rem; margin-bottom:0.25rem;">${escHtml(e.subject || '(no subject)')}</div>
+                    <span class="pill" style="font-size:0.75rem; padding:0.15rem 0.5rem; border:1px solid ${getStatusColor(e.processing_status)}; color:${getStatusColor(e.processing_status)}; background:transparent; flex-shrink:0; margin-left:0.5rem;">${e.processing_status}</span>
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-secondary);">
+                    <span style="color:var(--text-primary);">${escHtml(e.sender || '')}</span> • ${formatDate(e.received_at)}
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
+                    ${escHtml(e.body_preview || '')}
+                </div>
+            </div>
+        `).join('');
+
+        const loadMoreBtn = _emailStore[category].hasMore
+            ? `<div style="text-align:center; padding:1rem;">
+                <button class="btn btn-ghost btn-sm" onclick="_loadEmailPage('${category}', ${limit}, ${_emailStore[category].offset + limit}, false)">Load More</button>
+               </div>`
+            : `<div style="text-align:center; padding:0.5rem; color:var(--text-tertiary); font-size:0.8rem;">All emails loaded (${allEmails.length} total)</div>`;
+
+        pageBody.innerHTML = `<div class="inbox-list" style="margin-top:1rem;">${rows}</div>${loadMoreBtn}`;
+
     } catch (err) {
-        main.querySelector('.page-body').innerHTML = `<div class="error" style="color:var(--critical); padding:2rem; text-align:center;">Failed to load inbox: ${escHtml(err.message)}</div>`;
+        pageBody.innerHTML = `<div class="error" style="color:var(--critical); padding:2rem; text-align:center;">Failed to load emails: ${escHtml(err.message)}</div>`;
     }
 }
 
-function viewEmailDetails(id) {
-    if (!window._fetchedEmails) return;
-    const email = window._fetchedEmails.find(e => e.id === id);
+// Fix #7: scoped to specific category store — no shared global
+function _openEmailModal(category, id) {
+    const store = _emailStore[category];
+    if (!store) return;
+    const email = store.emails.find(e => e.id === id);
     if (!email) return;
+    viewEmailDetails(email);
+}
+
+function viewEmailDetails(email) {
+    if (!email) return;
+
+    // Fix #8: date guard in modal too
+    const formatDate = (iso) => {
+        if (!iso || iso === 'None' || iso === '') return 'Unknown date';
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? 'Unknown date' : d.toLocaleString();
+    };
 
     const bodyHtml = `
         <div style="display:flex; flex-direction:column; gap:1rem;">
             <div>
-                <strong>From:</strong> ${escHtml(email.sender)}<br>
-                <strong>Date:</strong> ${new Date(email.received_at).toLocaleString()}<br>
-                <strong>Status:</strong> ${email.processing_status}
+                <strong>From:</strong> ${escHtml(email.sender || '')}<br>
+                <strong>Date:</strong> ${formatDate(email.received_at)}<br>
+                <strong>Status:</strong> ${escHtml(email.processing_status || '')}<br>
+                <strong>Category:</strong> <span style="color:${email.category === 'work' ? 'var(--success)' : 'var(--text-tertiary)'};">${escHtml(email.category || 'miscellaneous')}</span>
             </div>
             <div style="background:var(--bg-primary); padding:1rem; border-radius:0.5rem; white-space:pre-wrap; font-family:monospace; font-size:0.85rem; max-height:400px; overflow-y:auto;">
-                ${escHtml(email.body || email.body_preview || 'No body content available')}
+                ${escHtml(email.body_preview || 'No body content available')}
             </div>
         </div>
     `;
     openModal(email.subject || '(no subject)', bodyHtml, '<button class="btn btn-secondary" onclick="closeModal()">Close</button>');
 }
 
-// ─── All Tasks View ─────────────────────────────────────────────────────────
 
-async function renderAllTasks() {
+// ─── Commitments View ─────────────────────────────────────────────────────────
+
+async function renderCommitments() {
     const main = document.getElementById('main-content');
     main.innerHTML = `
-        <div class="page-header">
-            <h2>All Tasks</h2>
-            <p class="page-subtitle">Complete task inventory</p>
+        <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <h2>Commitments</h2>
+                <p class="page-subtitle">Your active tasks and deadlines</p>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="showNewCommitmentModal()">+ New Commitment</button>
         </div>
         <div class="page-body">
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
@@ -572,6 +638,84 @@ async function loadTasksFiltered(status) {
             : emptyState('No tasks found', 'Try a different filter');
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-title">Error</div><div class="empty-desc">${escHtml(err.message)}</div></div>`;
+    }
+}
+
+function showNewCommitmentModal() {
+    const bodyHtml = `
+        <form id="new-commitment-form" onsubmit="handleNewCommitment(event)">
+            <div class="form-group">
+                <label>Title <span style="color:var(--critical)">*</span></label>
+                <input type="text" id="commit-title" required minlength="2" maxlength="500"
+                    placeholder="e.g. Send proposal to client by Friday" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>Urgency</label>
+                <select id="commit-urgency">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Deadline <span style="color:var(--text-tertiary); font-size:0.8rem;">(Optional)</span></label>
+                <input type="date" id="commit-date">
+            </div>
+            <div class="form-group">
+                <label>Notes / Action Needed <span style="color:var(--text-tertiary); font-size:0.8rem;">(Optional)</span></label>
+                <input type="text" id="commit-notes" maxlength="300" placeholder="What needs to be done?">
+            </div>
+            <div id="commit-error" style="color:var(--critical); font-size:0.85rem; margin-top:0.5rem; display:none;"></div>
+        </form>
+    `;
+    const footerHtml = `
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="document.getElementById('new-commitment-form').requestSubmit()">Create</button>
+    `;
+    openModal('New Commitment', bodyHtml, footerHtml);
+    // Focus the title after modal renders
+    setTimeout(() => { const t = document.getElementById('commit-title'); if (t) t.focus(); }, 50);
+}
+
+async function handleNewCommitment(e) {
+    e.preventDefault();
+    if (!lockSubmit()) return;
+
+    const errorEl = document.getElementById('commit-error');
+    const title = (document.getElementById('commit-title').value || '').trim();
+
+    // Client-side validation
+    if (title.length < 2) {
+        if (errorEl) { errorEl.textContent = 'Title must be at least 2 characters.'; errorEl.style.display = 'block'; }
+        unlockSubmit();
+        return;
+    }
+    if (title.length > 500) {
+        if (errorEl) { errorEl.textContent = 'Title must be under 500 characters.'; errorEl.style.display = 'block'; }
+        unlockSubmit();
+        return;
+    }
+    if (errorEl) errorEl.style.display = 'none';
+
+    try {
+        const body = {
+            title,
+            urgency: document.getElementById('commit-urgency').value,
+            deadline_date: document.getElementById('commit-date').value || null,
+            action_needed: document.getElementById('commit-notes')?.value?.trim() || null,
+        };
+        // Remove null values before sending
+        Object.keys(body).forEach(k => body[k] === null && delete body[k]);
+        await API.post('/api/tasks', body);
+        toast('Commitment created successfully', 'success');
+        closeModal();
+        if (location.hash === '#commitments') renderCommitments();
+    } catch (err) {
+        if (errorEl) { errorEl.textContent = 'Error: ' + err.message; errorEl.style.display = 'block'; }
+        toast('Failed to create commitment: ' + err.message, 'error');
+    } finally {
+        unlockSubmit();
     }
 }
 

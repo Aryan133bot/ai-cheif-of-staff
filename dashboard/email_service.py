@@ -90,6 +90,14 @@ class EmailService:
             ]
 
             # Save ALL fetched emails to the database for visibility
+            try:
+                from filters import categorize_email
+            except Exception as _fe:
+                logger.warning(
+                    "filters.py import failed (%s) — all emails will be labelled miscellaneous.", _fe
+                )
+                categorize_email = lambda s, b: "miscellaneous"
+
             email_records = [
                 {
                     "email_id": e.email_id,
@@ -99,6 +107,7 @@ class EmailService:
                     "received_at": str(e.received_at) if e.received_at else "",
                     "thread_id": e.thread_id,
                     "processing_status": "pending",
+                    "category": categorize_email(e.subject, e.body),
                 }
                 for e in fetched
             ]

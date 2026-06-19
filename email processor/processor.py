@@ -8,6 +8,17 @@ from classifier import DeadlineExtractor
 from models import RawEmail
 from task_engine import TaskEngine
 
+try:
+    from filters import categorize_email, get_work_match_reasons
+except Exception as _filter_import_err:
+    import logging as _log
+    _log.getLogger(__name__).warning(
+        "filters.py could not be loaded (%s). All emails will be treated as relevant.",
+        _filter_import_err,
+    )
+    categorize_email = lambda s, b: "work"  # fail-open: extract from everything
+    get_work_match_reasons = lambda s, b: []
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,6 +29,20 @@ class EmailProcessor:
         self.user_id = user_id
 
     def process_email(self, email: RawEmail) -> dict:
+        # Use the unified filters.py to classify email category
+        category = categorize_email(email.subject, email.body)
+        
+        if category != "work":
+            # Skip LLM extraction for non-work emails — saves API tokens
+            return {
+                "email_id": email.email_id,
+                "extracted_count": 0,
+                "created": 0,
+                "updated": 0,
+                "skipped": True,
+            }
+
+        # Secondary check: old prefilter labels for deadline-specific signals
         if not self.is_relevant_email(email):
             return {
                 "email_id": email.email_id,

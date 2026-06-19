@@ -164,6 +164,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 received_at      TEXT,
                 thread_id        TEXT,
                 processing_status TEXT   NOT NULL DEFAULT 'skipped',
+                category         TEXT    NOT NULL DEFAULT 'miscellaneous',
                 run_id           INTEGER,
                 created_at       TEXT    NOT NULL,
                 user_id          INTEGER NOT NULL,
@@ -196,6 +197,10 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         columns = get_columns("calendar_events")
         if "gcal_event_id" not in columns:
             conn.execute("ALTER TABLE calendar_events ADD COLUMN gcal_event_id TEXT")
+
+        fetched_columns = get_columns("fetched_emails")
+        if "category" not in fetched_columns:
+            conn.execute("ALTER TABLE fetched_emails ADD COLUMN category TEXT NOT NULL DEFAULT 'miscellaneous'")
 
         draft_columns = get_columns("reply_drafts")
         for col, ddl in (
@@ -320,6 +325,62 @@ def get_review_queue(db_path: str = DEFAULT_DB_PATH, limit: int = 50, user_id: i
             params + (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def create_task(db_path: str, data: dict, user_id: int) -> dict:
+    """Manually create a task. Compatible with SQLite < 3.35 (no RETURNING *)."""
+    import hashlib
+    conn = get_db(db_path)
+    try:
+        now = _now_iso()
+        # Timestamp-salted fingerprint ensures no collisions across rapid manual entries
+        fp_str = f"manual|{user_id}|{data['title']}|{now}"
+        fp = hashlib.sha256(fp_str.encode("utf-8")).hexdigest()
+
+        title = data["title"].strip()
+        if not title:
+            raise ValueError("Task title cannot be empty.")
+        if len(title) > 500:
+            raise ValueError("Task title is too long (max 500 characters).")
+
+        cursor = conn.execute(
+            """
+            INSERT INTO tasks (
+                fingerprint, title, deadline_type, urgency, source_quote, confidence,
+                deadline_date, assigned_to, counterparty, action_needed, review_required,
+                source_email_id, source_subject, source_sender, received_at,
+                priority, status, created_at, updated_at, user_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                fp,
+                title,
+                data.get("deadline_type", "task"),
+                data.get("urgency", "medium"),
+                data.get("source_quote", "Manually created"),
+                1.0,  # 100% confidence for manual entry
+                data.get("deadline_date") or None,
+                data.get("assigned_to") or None,
+                data.get("counterparty") or None,
+                data.get("action_needed") or None,
+                0,
+                "manual",
+                "manual",
+                "manual",
+                now,
+                50.0,  # default priority score
+                "created",
+                now,
+                now,
+                user_id,
+            ),
+        )
+        conn.commit()
+        # SQLite-version-safe: fetch by lastrowid
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
     finally:
         conn.close()
 
@@ -957,42 +1018,76 @@ def get_user_gmail_token(db_path: str, user_id: int) -> str | None:
 # ─── Fetched emails queries ──────────────────────────────────────────────────
 
 def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: int) -> None:
-    """Save all fetched emails to the database for display."""
+    """Save all fetched emails to the database for display.
+    
+    On re-ingest, the category and processing_status are updated so that
+    improvements to the vocabulary bank take effect retroactively.
+    """
     now = _now_iso()
     conn = get_db(db_path)
     try:
         for e in emails:
             email_id = e.get("email_id", "")
-            existing = conn.execute("SELECT id FROM fetched_emails WHERE email_id = ? AND user_id = ?", (email_id, user_id)).fetchone()
+            subject = e.get("subject", "(no subject)")
+            sender = e.get("sender", "")
+            body_preview = (e.get("body", "") or "")[:500]
+            received_at = e.get("received_at", "")
+            thread_id = e.get("thread_id")
+            processing_status = e.get("processing_status", "pending")
+            category = e.get("category", "miscellaneous")
+
+            existing = conn.execute(
+                "SELECT id FROM fetched_emails WHERE email_id = ? AND user_id = ?",
+                (email_id, user_id)
+            ).fetchone()
+
             if existing:
-                continue
-            conn.execute(
-                """
-                INSERT INTO fetched_emails
-                    (email_id, subject, sender, body_preview, received_at, thread_id,
-                     processing_status, run_id, created_at, user_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    email_id,
-                    e.get("subject", "(no subject)"),
-                    e.get("sender", ""),
-                    (e.get("body", "") or "")[:500],
-                    e.get("received_at", ""),
-                    e.get("thread_id"),
-                    e.get("processing_status", "skipped"),
-                    run_id,
-                    now,
-                    user_id,
-                ),
-            )
+                # Update category and status on re-ingest so vocabulary bank improvements apply
+                conn.execute(
+                    """
+                    UPDATE fetched_emails
+                    SET category = ?, processing_status = ?, run_id = ?
+                    WHERE email_id = ? AND user_id = ?
+                    """,
+                    (category, processing_status, run_id, email_id, user_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO fetched_emails
+                        (email_id, subject, sender, body_preview, received_at, thread_id,
+                         processing_status, category, run_id, created_at, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        email_id,
+                        subject,
+                        sender,
+                        body_preview,
+                        received_at,
+                        thread_id,
+                        processing_status,
+                        category,
+                        run_id,
+                        now,
+                        user_id,
+                    ),
+                )
         conn.commit()
     finally:
         conn.close()
 
 
-def get_fetched_emails(db_path: str, user_id: int, limit: int = 100, status: str | None = None) -> list[dict]:
-    """Get fetched emails for a user."""
+
+def get_fetched_emails(
+    db_path: str,
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+    category: str | None = None,
+) -> list[dict]:
+    """Get fetched emails for a user with pagination support."""
     conn = get_db(db_path)
     try:
         where = "WHERE user_id = ?"
@@ -1000,9 +1095,12 @@ def get_fetched_emails(db_path: str, user_id: int, limit: int = 100, status: str
         if status:
             where += " AND processing_status = ?"
             params.append(status)
-        params.append(limit)
+        if category:
+            where += " AND category = ?"
+            params.append(category)
+        params.extend([limit, offset])
         rows = conn.execute(
-            f"SELECT * FROM fetched_emails {where} ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM fetched_emails {where} ORDER BY received_at DESC LIMIT ? OFFSET ?",
             params,
         ).fetchall()
         return [dict(r) for r in rows]
