@@ -9,43 +9,43 @@
 
 /* ── Design Tokens ───────────────────────────────────────────────────────── */
 :root {
-    /* Surface palette - Deep mesh gradient base */
-    --bg-primary:       #060B19; /* Very dark midnight */
-    --bg-secondary:     rgba(15, 23, 42, 0.4); /* Translucent Slate */
-    --bg-tertiary:      rgba(15, 23, 42, 0.6);
-    --bg-elevated:      rgba(15, 23, 42, 0.5);
-    --bg-hover:         rgba(255, 255, 255, 0.05);
+    /* Surface palette - Professional Black/Grey base */
+    --bg-primary:       #000000; /* Pure black */
+    --bg-secondary:     rgba(24, 24, 27, 0.6); /* Translucent Grey */
+    --bg-tertiary:      rgba(39, 39, 42, 0.7);
+    --bg-elevated:      rgba(24, 24, 27, 0.9);
+    --bg-hover:         rgba(255, 255, 255, 0.1);
 
     /* Panel styles (True Glassmorphism) */
-    --glass-bg:         rgba(20, 25, 45, 0.45);
-    --glass-border:     rgba(255, 255, 255, 0.08);
-    --glass-blur:       16px;
+    --glass-bg:         rgba(18, 18, 18, 0.6);
+    --glass-border:     rgba(255, 255, 255, 0.12);
+    --glass-blur:       24px;
 
     /* Text */
-    --text-primary:     #F8FAFC;
-    --text-secondary:   #94A3B8;
-    --text-tertiary:    #64748B;
-    --text-inverse:     #0F172A;
+    --text-primary:     #FFFFFF;
+    --text-secondary:   #A1A1AA;
+    --text-tertiary:    #71717A;
+    --text-inverse:     #000000;
 
-    /* Accent — Vibrant Neon Blue */
-    --accent:           #3B82F6;
-    --primary:          #3B82F6;
-    --accent-hover:     #60A5FA;
-    --accent-subtle:    rgba(59, 130, 246, 0.15);
-    --accent-glow:      rgba(59, 130, 246, 0.4);
-    --border-color:     rgba(255, 255, 255, 0.08);
+    /* Accent — Vibrant Blue */
+    --accent:           #2563EB;
+    --primary:          #2563EB;
+    --accent-hover:     #3B82F6;
+    --accent-subtle:    rgba(37, 99, 235, 0.15);
+    --accent-glow:      rgba(37, 99, 235, 0.4);
+    --border-color:     rgba(255, 255, 255, 0.12);
 
-    /* Urgency & Status colors - Glowing Neons */
-    --critical:         #F43F5E; /* Neon Rose */
-    --critical-bg:      rgba(244, 63, 94, 0.15);
-    --high:             #F59E0B; /* Neon Amber */
+    /* Urgency & Status colors - Vivid Pops */
+    --critical:         #EF4444; /* Vivid Red */
+    --critical-bg:      rgba(239, 68, 68, 0.15);
+    --high:             #F59E0B; /* Vivid Amber */
     --high-bg:          rgba(245, 158, 11, 0.15);
-    --medium:           #3B82F6; /* Neon Blue */
+    --medium:           #3B82F6; /* Vivid Blue */
     --medium-bg:        rgba(59, 130, 246, 0.15);
-    --low:              #14B8A6; /* Neon Teal */
-    --low-bg:           rgba(20, 184, 166, 0.15);
+    --low:              #10B981; /* Vivid Emerald */
+    --low-bg:           rgba(16, 185, 129, 0.15);
 
-    --success:          #10B981; /* Neon Emerald */
+    --success:          #10B981; /* Vivid Emerald */
     --success-bg:       rgba(16, 185, 129, 0.15);
     --warning:          #F59E0B;
     --warning-bg:       rgba(245, 158, 11, 0.15);
@@ -56,8 +56,8 @@
     --type-payment:     #F59E0B;
     --type-follow-up:   #8B5CF6;
     --type-decision:    #EC4899;
-    --type-delivery:    #10B981;
-    --type-other:       #64748B;
+    --type-delivery:    #14B8A6;
+    --type-other:       #A1A1AA;
 
     /* Layout */
     --sidebar-width:    260px;
@@ -97,20 +97,12 @@ body {
     font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--bg-primary);
     background-image: 
-        radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.15) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(20, 184, 166, 0.1) 0px, transparent 50%);
+        radial-gradient(circle at 50% -20%, rgba(50, 50, 55, 0.4) 0%, transparent 60%);
     background-attachment: fixed;
     color: var(--text-primary);
     line-height: 1.5;
     min-height: 100vh;
     overflow-x: hidden;
-    animation: bgShift 20s ease-in-out infinite alternate;
-}
-
-@keyframes bgShift {
-    0% { background-position: 0% 0%; }
-    100% { background-position: 100% 100%; }
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -403,6 +395,13 @@ input:focus, select:focus, textarea:focus {
     color: var(--text-primary);
 }
 
+.stat-card.critical { border-top: 3px solid var(--critical); }
+.stat-card.warning { border-top: 3px solid var(--warning); }
+.stat-card.success { border-top: 3px solid var(--success); }
+.stat-card.critical .stat-value { color: var(--critical); text-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+.stat-card.warning .stat-value { color: var(--warning); text-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+.stat-card.success .stat-value { color: var(--success); text-shadow: 0 0 10px rgba(16, 185, 129, 0.4); }
+
 .stat-card .stat-label {
     font-size: 0.7rem;
     color: var(--text-secondary);
@@ -637,18 +636,18 @@ input:focus, select:focus, textarea:focus {
     flex-shrink: 0;
 }
 
-/* ── Monochromatic Distribution colors ───────────────────────────────────── */
-.bar-critical { background: rgba(37, 99, 235, 1.0); }
-.bar-high     { background: rgba(37, 99, 235, 0.85); }
-.bar-medium   { background: rgba(37, 99, 235, 0.65); }
-.bar-low      { background: rgba(37, 99, 235, 0.4); }
-.bar-task     { background: rgba(37, 99, 235, 1.0); }
-.bar-meeting  { background: rgba(37, 99, 235, 0.85); }
-.bar-payment  { background: rgba(37, 99, 235, 0.7); }
-.bar-follow_up { background: rgba(37, 99, 235, 0.55); }
-.bar-decision { background: rgba(37, 99, 235, 0.4); }
-.bar-delivery { background: rgba(37, 99, 235, 0.3); }
-.bar-other    { background: rgba(37, 99, 235, 0.2); }
+/* ── Vivid Accent Distribution colors ────────────────────────────────────── */
+.bar-critical { background: var(--critical); }
+.bar-high     { background: var(--high); }
+.bar-medium   { background: var(--medium); }
+.bar-low      { background: var(--low); }
+.bar-task     { background: var(--type-task); }
+.bar-meeting  { background: var(--type-meeting); }
+.bar-payment  { background: var(--type-payment); }
+.bar-follow_up { background: var(--type-follow-up); }
+.bar-decision { background: var(--type-decision); }
+.bar-delivery { background: var(--type-delivery); }
+.bar-other    { background: var(--type-other); }
 
 /* ── Two-column layout ───────────────────────────────────────────────────── */
 .grid-2 {
