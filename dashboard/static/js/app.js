@@ -658,7 +658,12 @@ function viewEmailDetails(email) {
             </div>
         </div>
     `;
-    openModal(email.subject || '(no subject)', bodyHtml, '<button class="btn btn-secondary" onclick="closeModal()">Close</button>');
+    openModal(
+        email.subject || '(no subject)', 
+        bodyHtml, 
+        `<button class="btn btn-ghost" onclick="closeModal()">Close</button>
+         <button class="btn btn-primary" onclick="closeModal(); setTimeout(() => openReplyModalForEmail('${email.category || 'miscellaneous'}', ${email.id}), 300);">Draft Reply</button>`
+    );
 }
 
 
@@ -1768,3 +1773,100 @@ async function initApp() {
 
 window.addEventListener('hashchange', navigate);
 window.addEventListener('DOMContentLoaded', initApp);
+
+// ─── Reply Modal for Emails (Non-Work/Work Mails) ──────────────────────────
+
+function openReplyModalForEmail(category, emailId) {
+    const store = _emailStore[category];
+    if (!store) { toast('Email store not found', 'error'); return; }
+    const email = store.emails.find(e => e.id === emailId);
+    if (!email) { toast('Email not found — refresh the page', 'error'); return; }
+
+    const intents = ['follow_up', 'acknowledge', 'request_info', 'decline'];
+    const body = `
+        <div class="reply-original">
+            <strong>Subject:</strong> ${escHtml(email.subject || '(no subject)')}<br>
+            <strong>From:</strong> ${escHtml(email.sender || '(no sender)')}<br><br>
+            ${escHtml(email.body_preview || '(No body available)')}
+        </div>
+        <div class="form-group">
+            <label>Reply Intent</label>
+            <div class="reply-intent-picker">
+                ${intents.map((i, idx) => `<span class="intent-chip ${idx === 0 ? 'active' : ''}" data-intent="${i}" onclick="selectIntent(this)">${i.replace(/_/g, ' ')}</span>`).join('')}
+            </div>
+        </div>
+        <div id="reply-draft-output-email" style="display:none">
+            <div class="form-group">
+                <label>AI Draft — edit as needed</label>
+                <textarea class="reply-draft-area" id="reply-draft-text-email" rows="6"></textarea>
+            </div>
+        </div>
+        <div id="reply-loading-email" style="display:none">
+            <div class="loading-overlay"><div class="spinner"></div><span>Generating reply...</span></div>
+        </div>`;
+
+    openModal('Draft Reply', body, `
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="btn-generate-reply-email" data-email-id="${emailId}" data-category="${category}" onclick="generateReplyFromEmailBtn()">Generate Reply</button>
+        <button class="btn btn-success" id="btn-save-reply-email" style="display:none" onclick="saveGeneratedReplyEmail()">Save Draft</button>`);
+}
+
+async function generateReplyFromEmailBtn() {
+    const genBtn = document.getElementById('btn-generate-reply-email');
+    const emailId = parseInt(genBtn.dataset.emailId, 10);
+    const category = genBtn.dataset.category;
+    
+    const store = _emailStore[category];
+    if (!store) { toast('Email store lost', 'error'); return; }
+    const email = store.emails.find(e => e.id === emailId);
+    if (!email) { toast('Email data lost', 'error'); return; }
+
+    const intent = document.querySelector('.intent-chip.active')?.dataset.intent || 'follow_up';
+    const loading = document.getElementById('reply-loading-email');
+    const output = document.getElementById('reply-draft-output-email');
+    const saveBtn = document.getElementById('btn-save-reply-email');
+
+    loading.style.display = '';
+    output.style.display = 'none';
+    genBtn.disabled = true;
+    genBtn.textContent = '⏳ Generating...';
+
+    try {
+        const result = await API.post('/api/replies/draft', {
+            task_id: null,
+            original_subject: email.subject || '',
+            original_sender: email.sender || '',
+            original_body: email.body_preview || '',
+            reply_intent: intent,
+            gmail_message_id: email.id.toString(),
+            gmail_thread_id: email.id.toString()
+        });
+        document.getElementById('reply-draft-text-email').value = result.draft_text;
+        output.style.display = '';
+        saveBtn.style.display = '';
+        saveBtn.dataset.draftId = result.id;
+        toast('Reply drafted successfully', 'success');
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        loading.style.display = 'none';
+        genBtn.disabled = false;
+        genBtn.textContent = 'Regenerate';
+    }
+}
+
+async function saveGeneratedReplyEmail() {
+    if (!lockSubmit()) return;
+    const saveBtn = document.getElementById('btn-save-reply-email');
+    const draftId = saveBtn.dataset.draftId;
+    const editedText = document.getElementById('reply-draft-text-email').value;
+    try {
+        await API.patch(`/api/replies/${draftId}`, { edited_text: editedText });
+        closeModal();
+        toast('Reply saved successfully. View it in the Reply Engine tab.', 'success');
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        unlockSubmit();
+    }
+}
