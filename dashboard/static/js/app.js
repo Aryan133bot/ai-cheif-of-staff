@@ -216,6 +216,39 @@ async function renderDashboard() {
         Store.setTasks([...priorities]);
 
         const body = main.querySelector('.page-body');
+
+        // Fetch email data in parallel with stats
+        let workEmails = [], miscEmails = [];
+        try {
+            [workEmails, miscEmails] = await Promise.all([
+                API.get('/api/emails/fetched?limit=5&category=work'),
+                API.get('/api/emails/fetched?limit=5&category=miscellaneous'),
+            ]);
+        } catch (_) {}
+
+        const formatDate = (iso) => {
+            if (!iso || iso === 'None' || iso === '') return '';
+            const d = new Date(iso);
+            return isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+        };
+
+        const renderEmailPreviewRow = (e) => `
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; padding:0.6rem 0; border-bottom:1px solid var(--border-color); gap:0.75rem; cursor:pointer;" onclick="location.hash='#${e.category === 'work' ? 'work-mails' : 'non-work-mails'}'">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(e.subject || '(no subject)')}</div>
+                    <div style="font-size:0.75rem; color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(e.sender || '')}</div>
+                </div>
+                <div style="font-size:0.72rem; color:var(--text-tertiary); flex-shrink:0; padding-top:2px;">${formatDate(e.received_at)}</div>
+            </div>`;
+
+        const workPreview = workEmails.length
+            ? workEmails.map(renderEmailPreviewRow).join('')
+            : `<div style="padding:1.5rem 0; text-align:center; color:var(--text-tertiary); font-size:0.85rem;">No work emails yet — click Process Emails</div>`;
+
+        const miscPreview = miscEmails.length
+            ? miscEmails.map(renderEmailPreviewRow).join('')
+            : `<div style="padding:1.5rem 0; text-align:center; color:var(--text-tertiary); font-size:0.85rem;">No non-work emails yet</div>`;
+
         body.innerHTML = `
             <!-- Summary Cards -->
             <div class="stats-grid">
@@ -234,6 +267,43 @@ async function renderDashboard() {
                 <div class="stat-card success">
                     <div class="stat-value">${stats.by_status.completed || 0}</div>
                     <div class="stat-label">Completed</div>
+                </div>
+            </div>
+
+            <!-- Email Inbox Summary -->
+            <div class="email-sections-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
+                <!-- Work Mails -->
+                <div class="card" style="border-top:3px solid var(--success);">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:0.6rem;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
+                            <h3 style="margin:0;">Work Mails</h3>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <span style="background:var(--success); color:#fff; border-radius:999px; padding:0.15rem 0.6rem; font-size:0.72rem; font-weight:700;">${workEmails.length > 0 ? workEmails.length + (workEmails.length === 5 ? '+' : '') : '0'}</span>
+                            <a href="#work-mails" class="btn btn-ghost btn-sm" style="font-size:0.72rem; padding:0.2rem 0.6rem;">View All →</a>
+                        </div>
+                    </div>
+                    <div class="card-body" style="padding-top:0;">
+                        ${workPreview}
+                    </div>
+                </div>
+
+                <!-- Non-Work Mails -->
+                <div class="card" style="border-top:3px solid var(--text-tertiary);">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:0.6rem;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                            <h3 style="margin:0;">Non-Work Mails</h3>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <span style="background:var(--bg-tertiary); color:var(--text-secondary); border:1px solid var(--border-color); border-radius:999px; padding:0.15rem 0.6rem; font-size:0.72rem; font-weight:700;">${miscEmails.length > 0 ? miscEmails.length + (miscEmails.length === 5 ? '+' : '') : '0'}</span>
+                            <a href="#non-work-mails" class="btn btn-ghost btn-sm" style="font-size:0.72rem; padding:0.2rem 0.6rem;">View All →</a>
+                        </div>
+                    </div>
+                    <div class="card-body" style="padding-top:0;">
+                        ${miscPreview}
+                    </div>
                 </div>
             </div>
 

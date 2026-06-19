@@ -1127,6 +1127,7 @@ input:focus, select:focus, textarea:focus {
     .main-content { margin-left: 0; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .email-sections-grid { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 600px) {
