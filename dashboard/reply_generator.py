@@ -112,4 +112,6 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
+    if last_error:
+        return f"SYSTEM ERROR LOG:\n{last_error}\n\nPlease share this error.", "error", 0.0
     return _template_reply(original_subject, original_sender, reply_intent), "template", 0.5
