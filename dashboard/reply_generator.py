@@ -83,17 +83,7 @@ def generate_reply_text(
         try:
             from google import genai
 
-            import tempfile
-            # If ADC JSON is provided via environment variable, write it to a temp file and set GOOGLE_APPLICATION_CREDENTIALS
-            if os.getenv("GOOGLE_CREDENTIALS_JSON"):
-                cred_path = os.path.join(tempfile.gettempdir(), "google_credentials.json")
-                if not os.path.exists(cred_path):
-                    with open(cred_path, "w") as f:
-                        f.write(os.getenv("GOOGLE_CREDENTIALS_JSON"))
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
-                client = genai.Client() # Automatically uses ADC
-            else:
-                client = genai.Client(api_key=gemini_key)
+            client = genai.Client(api_key=gemini_key)
             response = client.models.generate_content(
                 model="gemini-1.5-pro",
                 contents=f"{REPLY_SYSTEM_PROMPT}\n\n---\n\n{user_message}",
