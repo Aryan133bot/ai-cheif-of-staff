@@ -247,6 +247,9 @@ def get_all_tasks(
         if status:
             clauses.append("status = ?")
             params.append(status)
+        else:
+            clauses.append("status NOT IN ('completed', 'dismissed')")
+            
         if urgency:
             clauses.append("urgency = ?")
             params.append(urgency)
