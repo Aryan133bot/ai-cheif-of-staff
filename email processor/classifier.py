@@ -73,7 +73,7 @@ class DeadlineExtractor:
             try:
                 from google import genai
                 self.client = genai.Client(api_key=self._api_key)
-                self.model = "gemini-2.0-flash"
+                self.model = "gemini-3.5-flash"
                 logger.info("Using Gemini Flash for deadline extraction (free tier)")
             except Exception as e:
                 logger.error("Failed to initialise Gemini client: %s", e)

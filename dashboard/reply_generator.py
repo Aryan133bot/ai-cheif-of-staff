@@ -85,10 +85,10 @@ def generate_reply_text(
 
             client = genai.Client(api_key=gemini_key)
             response = client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-3.5-flash",
                 contents=f"{REPLY_SYSTEM_PROMPT}\n\n---\n\n{user_message}",
             )
-            return response.text.strip(), "gemini-1.5-flash", 0.85
+            return response.text.strip(), "gemini-3.5-flash", 0.85
         except Exception as e:
             logger.error("Gemini reply generation failed: %s — trying next provider", e)
             last_error = f"Gemini Error: {str(e)}"
@@ -112,6 +112,4 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
-    if last_error:
-        return f"SYSTEM ERROR LOG:\n{last_error}\n\nPlease share this error.", "error", 0.0
     return _template_reply(original_subject, original_sender, reply_intent), "template", 0.5
