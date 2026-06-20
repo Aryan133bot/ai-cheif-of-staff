@@ -123,7 +123,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 sent_at               TEXT,
                 gmail_sent_message_id TEXT,
                 send_error            TEXT,
-                is_auto_sent          BOOLEAN DEFAULT 0,
+                is_auto_sent          BOOLEAN DEFAULT FALSE,
                 created_at            TEXT    NOT NULL,
                 updated_at            TEXT    NOT NULL,
                 user_id               INTEGER NOT NULL,
@@ -185,6 +185,23 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contact_relationships (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                email_address TEXT NOT NULL,
+                role TEXT NOT NULL,
+                importance INTEGER DEFAULT 50,
+                tone_preference TEXT DEFAULT 'professional',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, email_address)
+            )
+            """
+        )
+
         import os
         is_pg = bool(os.environ.get("DATABASE_URL"))
         
@@ -211,7 +228,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             ("sent_at", "ALTER TABLE reply_drafts ADD COLUMN sent_at TEXT"),
             ("gmail_sent_message_id", "ALTER TABLE reply_drafts ADD COLUMN gmail_sent_message_id TEXT"),
             ("send_error", "ALTER TABLE reply_drafts ADD COLUMN send_error TEXT"),
-            ("is_auto_sent", "ALTER TABLE reply_drafts ADD COLUMN is_auto_sent BOOLEAN DEFAULT 0"),
+            ("is_auto_sent", "ALTER TABLE reply_drafts ADD COLUMN is_auto_sent BOOLEAN DEFAULT FALSE"),
         ):
             if col not in draft_columns:
                 conn.execute(ddl)
@@ -226,7 +243,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             conn.execute("ALTER TABLE users ADD COLUMN gmail_token TEXT")
 
         if "auto_send_enabled" not in get_columns("users"):
-            conn.execute("ALTER TABLE users ADD COLUMN auto_send_enabled BOOLEAN DEFAULT 0")
+            conn.execute("ALTER TABLE users ADD COLUMN auto_send_enabled BOOLEAN DEFAULT FALSE")
 
         conn.commit()
         logger.info("Database schema initialised at %s", db_path)
