@@ -292,6 +292,22 @@ def update_password(body: ChangePasswordBody, user: dict = Depends(get_current_u
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ─── Settings endpoints ───────────────────────────────────────────────────────
+
+class AutoSendBody(BaseModel):
+    enabled: bool
+
+@app.post("/api/settings/auto-send")
+def set_auto_send(body: AutoSendBody, user: dict = Depends(get_current_user)):
+    """Update auto_send_enabled for the current user."""
+    conn = get_db(DB_PATH)
+    try:
+        conn.execute("UPDATE users SET auto_send_enabled = ? WHERE id = ?", (body.enabled, user["id"]))
+        conn.commit()
+        return {"ok": True, "auto_send_enabled": body.enabled}
+    finally:
+        conn.close()
+
 # ─── Task endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/api/tasks")

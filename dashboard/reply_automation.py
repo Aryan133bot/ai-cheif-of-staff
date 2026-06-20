@@ -25,14 +25,21 @@ def auto_create_reply_drafts_for_emails(db_path: str, emails, user_id: int) -> i
             if db.has_active_reply_draft_for_task(db_path, task_id):
                 continue
 
-            draft_text, model_used, confidence = generate_reply_text(
+            draft_text, model_used, confidence, auto_send_eligible = generate_reply_text(
                 original_subject=task["source_subject"],
                 original_sender=task["source_sender"],
                 original_body=body or task.get("source_quote", ""),
                 reply_intent="acknowledge",
             )
+            
+            # Check if user has auto_send enabled
+            user = db.get_user_by_id(db_path, user_id)
+            is_auto_send_enabled = user.get("auto_send_enabled", False) if user else False
+            
+            is_auto_sent = False
+            status = "pending"
 
-            db.create_reply_draft(
+            draft_id = db.create_reply_draft(
                 db_path,
                 {
                     "task_id": task_id,
@@ -45,9 +52,25 @@ def auto_create_reply_drafts_for_emails(db_path: str, emails, user_id: int) -> i
                     "confidence": confidence,
                     "gmail_message_id": email.email_id,
                     "gmail_thread_id": getattr(email, "thread_id", None),
+                    "status": status,
+                    "is_auto_sent": is_auto_sent,
                 },
                 user_id=user_id,
             )
+            
+            if is_auto_send_enabled and auto_send_eligible and confidence > 0.7:
+                try:
+                    from reply_sender import send_approved_reply, mark_draft_sent, mark_draft_send_failed
+                    draft = db.get_reply_draft(db_path, draft_id, user_id=user_id)
+                    if draft:
+                        gmail_resp = send_approved_reply(db_path, draft, user_id=user_id)
+                        db.update_reply_draft(db_path, draft_id, {"is_auto_sent": True}, user_id=user_id)
+                        mark_draft_sent(db_path, draft_id, gmail_resp, user_id=user_id)
+                        logger.info("Auto-sent reply for task %s", task_id)
+                except Exception as e:
+                    logger.error("Auto-send failed for task %s: %s", task_id, e)
+                    # It falls back to pending automatically since mark_draft_sent isn't called
+
             created += 1
             logger.info(
                 "Auto-created reply draft for task %s (email %s)",

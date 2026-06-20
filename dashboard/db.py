@@ -45,7 +45,8 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 password   TEXT    NOT NULL,
                 gmail_token TEXT,
                 created_at TEXT    NOT NULL,
-                last_login TEXT
+                last_login TEXT,
+                auto_send_enabled BOOLEAN DEFAULT 0
             )
             """
         )
@@ -122,6 +123,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 sent_at               TEXT,
                 gmail_sent_message_id TEXT,
                 send_error            TEXT,
+                is_auto_sent          BOOLEAN DEFAULT 0,
                 created_at            TEXT    NOT NULL,
                 updated_at            TEXT    NOT NULL,
                 user_id               INTEGER NOT NULL,
@@ -209,6 +211,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             ("sent_at", "ALTER TABLE reply_drafts ADD COLUMN sent_at TEXT"),
             ("gmail_sent_message_id", "ALTER TABLE reply_drafts ADD COLUMN gmail_sent_message_id TEXT"),
             ("send_error", "ALTER TABLE reply_drafts ADD COLUMN send_error TEXT"),
+            ("is_auto_sent", "ALTER TABLE reply_drafts ADD COLUMN is_auto_sent BOOLEAN DEFAULT 0"),
         ):
             if col not in draft_columns:
                 conn.execute(ddl)
@@ -221,6 +224,9 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         
         if "gmail_token" not in get_columns("users"):
             conn.execute("ALTER TABLE users ADD COLUMN gmail_token TEXT")
+
+        if "auto_send_enabled" not in get_columns("users"):
+            conn.execute("ALTER TABLE users ADD COLUMN auto_send_enabled BOOLEAN DEFAULT 0")
 
         conn.commit()
         logger.info("Database schema initialised at %s", db_path)
@@ -818,8 +824,8 @@ def create_reply_draft(db_path: str, data: dict, user_id: int) -> dict:
                 (task_id, original_subject, original_sender, original_body,
                  reply_intent, draft_text, edited_text, status,
                  model_used, confidence, gmail_message_id, gmail_thread_id,
-                 created_at, updated_at, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                 is_auto_sent, created_at, updated_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             """,
             (
                 data.get("task_id"),
@@ -834,6 +840,7 @@ def create_reply_draft(db_path: str, data: dict, user_id: int) -> dict:
                 data.get("confidence", 0.0),
                 data.get("gmail_message_id"),
                 data.get("gmail_thread_id"),
+                data.get("is_auto_sent", False),
                 now,
                 now,
                 user_id,

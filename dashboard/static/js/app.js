@@ -1297,7 +1297,10 @@ async function loadReplyDrafts() {
             <div class="reply-card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
                     <strong style="font-size:0.85rem">RE: ${escHtml(d.original_subject)}</strong>
-                    <span class="pill ${d.status === 'sent' ? 'pill-success' : d.status === 'pending' ? 'pill-warning' : d.status === 'sending' ? 'pill-warning' : d.status === 'approved' ? 'pill-success' : 'pill-low'}">${d.status}</span>
+                    <div>
+                        ${d.is_auto_sent ? '<span class="pill pill-high" style="margin-right: 0.5rem; background: var(--border-color); color: var(--text-primary); border: 1px solid var(--text-tertiary);">🤖 Auto-Sent</span>' : ''}
+                        <span class="pill ${d.status === 'sent' ? 'pill-success' : d.status === 'pending' ? 'pill-warning' : d.status === 'sending' ? 'pill-warning' : d.status === 'approved' ? 'pill-success' : 'pill-low'}">${d.status}</span>
+                    </div>
                 </div>
                 <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:0.5rem">To: ${escHtml(d.original_sender)} · ${escHtml(d.model_used)} · ${timeAgo(d.created_at)}</div>
                 <div class="reply-original">${escHtml((d.edited_text || d.draft_text || '').slice(0, 200))}${(d.edited_text || d.draft_text || '').length > 200 ? '...' : ''}</div>
@@ -1564,6 +1567,15 @@ async function renderSettings() {
                         <span class="settings-value">${emailStatus.auto_poll_enabled ? `Enabled (every ${emailStatus.poll_interval_minutes} min)` : 'Disabled'}</span>
                     </div>
                     <div class="settings-row">
+                        <span class="settings-label">Autonomous Auto-Send</span>
+                        <span class="settings-value">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-send-toggle" ${me.auto_send_enabled ? 'checked' : ''} onchange="toggleAutoSend(this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </span>
+                    </div>
+                    <div class="settings-row">
                         <span class="settings-label">Last Sync</span>
                         <span class="settings-value">${escHtml(lastRunInfo)}</span>
                     </div>
@@ -1607,6 +1619,18 @@ async function renderSettings() {
             </div>`;
     } catch (err) {
         main.querySelector('.page-body').innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load settings</div><div class="empty-desc">${escHtml(err.message)}</div></div>`;
+    }
+}
+
+async function toggleAutoSend(enabled) {
+    try {
+        await API.post('/api/settings/auto-send', { enabled });
+        toast(enabled ? 'Auto-send enabled' : 'Auto-send disabled', 'success');
+    } catch (err) {
+        toast('Failed to update auto-send setting: ' + err.message, 'error');
+        // Revert toggle visually
+        const toggle = document.getElementById('auto-send-toggle');
+        if (toggle) toggle.checked = !enabled;
     }
 }
 
