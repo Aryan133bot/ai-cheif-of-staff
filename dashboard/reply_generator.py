@@ -100,7 +100,7 @@ def generate_reply_text(
             else:
                 client = genai.Client(api_key=gemini_key)
 
-            models_to_try = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
+            models_to_try = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
             
             for model_name in models_to_try:
                 try:
@@ -114,8 +114,10 @@ def generate_reply_text(
                     data = json.loads(response.text.strip())
                     return data.get("draft_text", "").strip(), model_name, 0.85, data.get("auto_send_eligible", False)
                 except Exception as e:
-                    if "503" in str(e) or "UNAVAILABLE" in str(e):
-                        logger.warning("Model %s overloaded: %s", model_name, e)
+                    error_str = str(e)
+                    if "503" in error_str or "UNAVAILABLE" in error_str or "404" in error_str or "NOT_FOUND" in error_str or "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                        logger.warning("Model %s unavailable/not found/exhausted: %s", model_name, e)
+                        last_error = f"Gemini Error on {model_name}: {error_str}"
                         continue
                     raise e
                     

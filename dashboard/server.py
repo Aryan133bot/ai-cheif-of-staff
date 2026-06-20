@@ -706,7 +706,7 @@ def _resolve_draft_gmail_ids(body: ReplyDraftRequest, user_id: int) -> tuple[str
 def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_user)):
     """Generate an AI reply draft and store it for approval."""
     gmail_message_id, gmail_thread_id = _resolve_draft_gmail_ids(body, user["id"])
-    draft_text, model_used, confidence = generate_reply_text(
+    draft_text, model_used, confidence, auto_send_eligible = generate_reply_text(
         original_subject=body.original_subject,
         original_sender=body.original_sender,
         original_body=body.original_body,
