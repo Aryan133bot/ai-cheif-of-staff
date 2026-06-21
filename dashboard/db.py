@@ -1135,6 +1135,7 @@ def get_fetched_emails(
         conn.close()
 
 def save_oauth_state(db_path: str, state: str, user_id: int):
+    from datetime import timedelta
     conn = get_db(db_path)
     try:
         # Cleanup old states (older than 1 hour)
