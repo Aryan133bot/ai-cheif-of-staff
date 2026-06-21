@@ -340,6 +340,12 @@ def review_queue(limit: int = Query(default=50, le=200), user: dict = Depends(ge
     return db.get_review_queue(db_path=DB_PATH, limit=limit, user_id=user["id"])
 
 
+class ContactRelationshipCreate(BaseModel):
+    email_address: str
+    role: str
+    importance: int = 50
+    tone_preference: str = "professional"
+
 class TaskCreate(BaseModel):
     title: str
     deadline_type: str = "task"
@@ -636,9 +642,6 @@ def connect_gmail(request: Request, user: dict = Depends(get_current_user)):
         auth_url, state = flow.authorization_url(prompt="consent", access_type="offline")
         db.save_oauth_state(DB_PATH, state, user["id"])
         
-        # Save code_verifier for PKCE validation in the callback
-        _oauth_flows[state] = getattr(flow, "code_verifier", None)
-        
         return {"ok": True, "auth_url": auth_url}
     except Exception as e:
         logger.error("Failed to generate auth url: %s", e)
@@ -671,10 +674,6 @@ def gmail_callback(request: Request, state: str = None, code: str = None, error:
         redirect_uri = str(request.base_url).rstrip("/") + "/api/gmail/callback"
         flow = Flow.from_client_secrets_file(str(creds_path), scopes=GMAIL_SCOPES)
         flow.redirect_uri = redirect_uri
-        
-        # Restore PKCE code verifier
-        if state in _oauth_flows and _oauth_flows[state]:
-            flow.code_verifier = _oauth_flows.pop(state)
         
         # Fetch the token using the full authorization response URL
         flow.fetch_token(authorization_response=str(request.url))
@@ -713,11 +712,29 @@ def _resolve_draft_gmail_ids(body: ReplyDraftRequest, user_id: int) -> tuple[str
 def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_user)):
     """Generate an AI reply draft and store it for approval."""
     gmail_message_id, gmail_thread_id = _resolve_draft_gmail_ids(body, user["id"])
+    import re
+    match = re.search(r'<(.+?)>', body.original_sender)
+    raw_email = match.group(1) if match else body.original_sender
+    raw_email = raw_email.strip().lower()
+
+    contact_role = None
+    tone_preference = None
+    with db.get_db(DB_PATH) as conn:
+        rel = conn.execute(
+            "SELECT role, tone_preference FROM contact_relationships WHERE user_id = ? AND email_address = ?",
+            (user["id"], raw_email)
+        ).fetchone()
+        if rel:
+            contact_role = rel["role"]
+            tone_preference = rel["tone_preference"]
+
     draft_text, model_used, confidence, auto_send_eligible = generate_reply_text(
         original_subject=body.original_subject,
         original_sender=body.original_sender,
         original_body=body.original_body,
         reply_intent=body.reply_intent,
+        contact_role=contact_role,
+        tone_preference=tone_preference,
     )
 
     data = {
@@ -734,6 +751,28 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
     }
     return db.create_reply_draft(db_path=DB_PATH, data=data, user_id=user["id"])
 
+
+@app.get("/api/relationships")
+def list_relationships(user: dict = Depends(get_current_user)):
+    return db.get_contact_relationships(db_path=DB_PATH, user_id=user["id"])
+
+@app.post("/api/relationships", status_code=201)
+def upsert_relationship(body: ContactRelationshipCreate, user: dict = Depends(get_current_user)):
+    return db.upsert_contact_relationship(
+        db_path=DB_PATH,
+        user_id=user["id"],
+        email_address=body.email_address,
+        role=body.role,
+        importance=body.importance,
+        tone_preference=body.tone_preference
+    )
+
+@app.delete("/api/relationships/{rel_id}")
+def delete_relationship(rel_id: int, user: dict = Depends(get_current_user)):
+    success = db.delete_contact_relationship(db_path=DB_PATH, user_id=user["id"], rel_id=rel_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    return {"status": "deleted"}
 
 @app.get("/api/replies")
 def list_replies(status: str | None = None, limit: int = Query(default=50, le=200), user: dict = Depends(get_current_user)):

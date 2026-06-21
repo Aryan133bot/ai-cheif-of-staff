@@ -155,7 +155,7 @@ function closeModal() {
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
-const views = { dashboard: renderDashboard, calendar: renderCalendar, 'work-mails': renderWorkMails, 'non-work-mails': renderNonWorkMails, replies: renderReplies, commitments: renderCommitments, settings: renderSettings };
+const views = { dashboard: renderDashboard, calendar: renderCalendar, 'work-mails': renderWorkMails, 'non-work-mails': renderNonWorkMails, replies: renderReplies, commitments: renderCommitments, relationships: renderRelationships, settings: renderSettings };
 
 function toggleMobileMenu() {
     const sidebar = document.getElementById('sidebar');
@@ -1503,6 +1503,146 @@ document.addEventListener('keydown', e => {
     }
     else if (e.key === 'Escape') closeModal();
 });
+
+// ─── Relationships View ──────────────────────────────────────────────────────
+
+async function renderRelationships() {
+    const main = document.getElementById('main-content');
+    main.innerHTML = `
+        <div class="page-header">
+            <h2>Contact Relationships</h2>
+            <p class="page-subtitle">Manage priorities and AI reply tones for specific contacts</p>
+        </div>
+        <div class="page-body">
+            <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
+        </div>
+    `;
+
+    try {
+        const relationships = await API.get('/api/relationships');
+        
+        const rows = relationships.map(r => `
+            <tr style="border-bottom:1px solid var(--border-color);">
+                <td style="padding:1rem; word-break:break-all;">${escHtml(r.email_address)}</td>
+                <td style="padding:1rem;"><span class="status-badge" style="background:var(--bg-secondary)">${escHtml(r.role)}</span></td>
+                <td style="padding:1rem;">
+                    <div style="display:flex;align-items:center;gap:0.5rem">
+                        <div style="flex:1;height:4px;background:var(--border-color);border-radius:2px;overflow:hidden">
+                            <div style="height:100%;background:var(--primary);width:${r.importance}%"></div>
+                        </div>
+                        <span style="font-size:0.8rem;color:var(--text-secondary)">${r.importance}</span>
+                    </div>
+                </td>
+                <td style="padding:1rem; text-transform:capitalize">${escHtml(r.tone_preference)}</td>
+                <td style="padding:1rem; text-align:right">
+                    <button class="btn btn-sm" style="color:var(--critical);border-color:transparent;background:transparent" onclick="deleteRelationship(${r.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--text-tertiary);padding:3rem 1rem;">No relationships defined yet</td></tr>`;
+
+        main.querySelector('.page-body').innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 380px;gap:2rem;align-items:start;margin-top:1rem;">
+                
+                <!-- Relationships List Card -->
+                <div class="card" style="padding:1.5rem; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); background:var(--bg-primary);">
+                    <div style="margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:center;">
+                        <h3 style="font-size:1.1rem;font-weight:600;color:var(--text-primary);margin:0;">Active Contacts</h3>
+                    </div>
+                    <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px;">
+                        <table class="table" style="width:100%; border-collapse:collapse; table-layout:fixed;">
+                            <thead style="background:var(--bg-secondary);">
+                                <tr>
+                                    <th style="width:30%; padding:1rem; text-align:left; font-size:0.8rem; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; border-bottom:1px solid var(--border-color);">Email</th>
+                                    <th style="width:20%; padding:1rem; text-align:left; font-size:0.8rem; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; border-bottom:1px solid var(--border-color);">Role</th>
+                                    <th style="width:25%; padding:1rem; text-align:left; font-size:0.8rem; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; border-bottom:1px solid var(--border-color);">Importance</th>
+                                    <th style="width:15%; padding:1rem; text-align:left; font-size:0.8rem; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; border-bottom:1px solid var(--border-color);">Tone</th>
+                                    <th style="width:10%; padding:1rem; text-align:right; border-bottom:1px solid var(--border-color);"></th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Form Card -->
+                <div class="card" style="padding:1.5rem; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); background:var(--bg-primary);">
+                    <h3 style="margin:0 0 1.5rem 0; font-size:1.1rem; font-weight:600; color:var(--text-primary);">Add / Update Contact</h3>
+                    
+                    <form onsubmit="handleUpsertRelationship(event)" style="display:flex;flex-direction:column;gap:1.25rem;">
+                        <div class="form-group" style="margin:0;">
+                            <label style="display:block; margin-bottom:0.4rem; font-size:0.85rem; font-weight:500; color:var(--text-secondary);">Email Address</label>
+                            <input type="email" id="rel-email" required placeholder="vip@company.com" style="width:100%; padding:0.6rem 0.75rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary); transition:border-color 0.2s;">
+                        </div>
+                        
+                        <div class="form-group" style="margin:0;">
+                            <label style="display:block; margin-bottom:0.4rem; font-size:0.85rem; font-weight:500; color:var(--text-secondary);">Role</label>
+                            <input type="text" id="rel-role" required placeholder="e.g. Boss, Client, Vendor" style="width:100%; padding:0.6rem 0.75rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary); transition:border-color 0.2s;">
+                        </div>
+                        
+                        <div class="form-group" style="margin:0;">
+                            <label style="display:block; margin-bottom:0.4rem; font-size:0.85rem; font-weight:500; color:var(--text-secondary);">Importance (1-100)</label>
+                            <div style="display:flex; gap:1rem; align-items:center;">
+                                <input type="range" id="rel-importance" min="1" max="100" value="50" style="flex:1; accent-color:var(--primary);" oninput="document.getElementById('rel-imp-val').textContent=this.value">
+                                <span id="rel-imp-val" style="width:2.5rem; text-align:right; font-size:0.95rem; font-weight:600; color:var(--text-primary);">50</span>
+                            </div>
+                            <span style="display:block; margin-top:0.4rem; font-size:0.75rem; color:var(--text-tertiary);">Higher importance accelerates task priority.</span>
+                        </div>
+                        
+                        <div class="form-group" style="margin:0;">
+                            <label style="display:block; margin-bottom:0.4rem; font-size:0.85rem; font-weight:500; color:var(--text-secondary);">Tone Preference</label>
+                            <select id="rel-tone" style="width:100%; padding:0.6rem 0.75rem; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-primary); cursor:pointer;">
+                                <option value="professional">Professional</option>
+                                <option value="casual">Casual & Friendly</option>
+                                <option value="deferential">Deferential & Respectful</option>
+                                <option value="assertive">Assertive & Direct</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-top:0.5rem;">
+                            <button type="submit" class="btn btn-primary" style="width:100%; padding:0.75rem; border-radius:6px; font-weight:500;">Save Relationship</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        main.querySelector('.page-body').innerHTML = `<div class="error-state">Failed to load relationships</div>`;
+    }
+}
+
+async function handleUpsertRelationship(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    const oldText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    try {
+        await API.post('/api/relationships', {
+            email_address: document.getElementById('rel-email').value,
+            role: document.getElementById('rel-role').value,
+            importance: parseInt(document.getElementById('rel-importance').value),
+            tone_preference: document.getElementById('rel-tone').value
+        });
+        toast('Relationship saved', 'success');
+        renderRelationships();
+    } catch (err) {
+        toast('Failed to save', 'error');
+        btn.textContent = oldText;
+        btn.disabled = false;
+    }
+}
+
+async function deleteRelationship(id) {
+    if (!confirm('Are you sure you want to delete this relationship?')) return;
+    try {
+        await API.delete('/api/relationships/' + id);
+        toast('Deleted successfully', 'success');
+        renderRelationships();
+    } catch (err) {
+        toast('Failed to delete', 'error');
+    }
+}
 
 // ─── Settings View ──────────────────────────────────────────────────────────
 

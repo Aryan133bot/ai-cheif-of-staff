@@ -36,7 +36,7 @@ def build_fingerprint(deadline: ExtractedDeadline, user_id: int) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
-def priority_score(deadline: ExtractedDeadline) -> float:
+def priority_score(deadline: ExtractedDeadline, contact_importance: int = 50) -> float:
     urgency_weight = {
         Urgency.CRITICAL.value: 100,
         Urgency.HIGH.value: 70,
@@ -45,7 +45,9 @@ def priority_score(deadline: ExtractedDeadline) -> float:
     }.get(deadline.urgency.value, 20)
     confidence_weight = max(0.0, min(1.0, deadline.confidence)) * 20
     review_penalty = -10 if deadline.review_required else 0
-    return urgency_weight + confidence_weight + review_penalty
+    # Add a bonus if contact is important (>50), or penalty if <50
+    contact_bonus = (contact_importance - 50)
+    return urgency_weight + confidence_weight + review_penalty + contact_bonus
 
 
 class TaskEngine:
@@ -100,11 +102,24 @@ class TaskEngine:
         created = 0
         updated = 0
         now = datetime.now(timezone.utc).isoformat()
+        
+        # Extract email from "Name <email@domain.com>" or "email@domain.com"
+        import re
+        match = re.search(r'<(.+?)>', source_sender)
+        raw_email = match.group(1) if match else source_sender
+        raw_email = raw_email.strip().lower()
 
         with self._connect() as conn:
+            # Query contact relationships for this email
+            rel_row = conn.execute(
+                "SELECT importance FROM contact_relationships WHERE user_id = ? AND email_address = ?",
+                (user_id, raw_email)
+            ).fetchone()
+            contact_importance = rel_row["importance"] if rel_row else 50
+
             for task in tasks:
                 fp = build_fingerprint(task, user_id)
-                score = priority_score(task)
+                score = priority_score(task, contact_importance=contact_importance)
                 existing = conn.execute(
                     "SELECT id FROM tasks WHERE fingerprint = ? AND user_id = ?",
                     (fp, user_id),

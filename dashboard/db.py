@@ -188,14 +188,14 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS contact_relationships (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                email_address TEXT NOT NULL,
-                role TEXT NOT NULL,
-                importance INTEGER DEFAULT 50,
-                tone_preference TEXT DEFAULT 'professional',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         INTEGER NOT NULL,
+                email_address   TEXT    NOT NULL,
+                role            TEXT    NOT NULL,
+                importance      INTEGER NOT NULL DEFAULT 50,
+                tone_preference TEXT    DEFAULT 'professional',
+                created_at      TEXT    NOT NULL,
+                updated_at      TEXT    NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 UNIQUE(user_id, email_address)
             )
@@ -1135,7 +1135,6 @@ def get_fetched_emails(
         conn.close()
 
 def save_oauth_state(db_path: str, state: str, user_id: int):
-    from datetime import timedelta
     conn = get_db(db_path)
     try:
         # Cleanup old states (older than 1 hour)
@@ -1159,5 +1158,70 @@ def get_user_for_oauth_state(db_path: str, state: str) -> int | None:
             conn.commit()
             return row["user_id"] if isinstance(row, dict) else row[0]
         return None
+    finally:
+        conn.close()
+
+# ΓöÇΓöÇΓöÇ Contact Relationships ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+
+def get_contact_relationships(db_path: str, user_id: int) -> list[dict]:
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM contact_relationships WHERE user_id = ? ORDER BY importance DESC, email_address ASC",
+            (user_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def upsert_contact_relationship(
+    db_path: str, user_id: int, email_address: str, role: str, importance: int, tone_preference: str
+) -> dict:
+    conn = get_db(db_path)
+    try:
+        now = _now_iso()
+        # Check if exists
+        existing = conn.execute(
+            "SELECT id FROM contact_relationships WHERE user_id = ? AND email_address = ?",
+            (user_id, email_address)
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """
+                UPDATE contact_relationships
+                SET role = ?, importance = ?, tone_preference = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (role, importance, tone_preference, now, existing["id"] if isinstance(existing, dict) else existing[0])
+            )
+            rel_id = existing["id"] if isinstance(existing, dict) else existing[0]
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO contact_relationships (user_id, email_address, role, importance, tone_preference, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                (user_id, email_address, role, importance, tone_preference, now, now)
+            )
+            rel_id = cursor.fetchone()[0]
+
+        conn.commit()
+        
+        row = conn.execute("SELECT * FROM contact_relationships WHERE id = ?", (rel_id,)).fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_contact_relationship(db_path: str, user_id: int, rel_id: int) -> bool:
+    conn = get_db(db_path)
+    try:
+        cursor = conn.execute(
+            "DELETE FROM contact_relationships WHERE id = ? AND user_id = ?",
+            (rel_id, user_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()

@@ -62,17 +62,28 @@ def generate_reply_text(
     original_sender: str,
     original_body: str,
     reply_intent: str = "follow_up",
+    contact_role: str | None = None,
+    tone_preference: str | None = None,
 ) -> tuple[str, str, float, bool]:
     """
     Generate a reply draft using the best available LLM.
     Returns (draft_text, model_used, confidence, auto_send_eligible).
     """
+    relationship_context = ""
+    if contact_role and tone_preference:
+        relationship_context = (
+            f"RELATIONSHIP CONTEXT:\n"
+            f"The sender of this email is the user's {contact_role}.\n"
+            f"Ensure the tone of your reply is {tone_preference}.\n\n"
+        )
+
     user_message = (
         f"ORIGINAL EMAIL:\n"
         f"From: {original_sender}\n"
         f"Subject: {original_subject}\n\n"
         f"{original_body[:2000]}\n\n"
         f"---\n"
+        f"{relationship_context}"
         f"REPLY INTENT: {reply_intent}\n\n"
         f"Draft a professional reply."
     )
@@ -100,7 +111,7 @@ def generate_reply_text(
             else:
                 client = genai.Client(api_key=gemini_key)
 
-            models_to_try = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+            models_to_try = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
             
             for model_name in models_to_try:
                 try:
@@ -114,10 +125,8 @@ def generate_reply_text(
                     data = json.loads(response.text.strip())
                     return data.get("draft_text", "").strip(), model_name, 0.85, data.get("auto_send_eligible", False)
                 except Exception as e:
-                    error_str = str(e)
-                    if "503" in error_str or "UNAVAILABLE" in error_str or "404" in error_str or "NOT_FOUND" in error_str or "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                        logger.warning("Model %s unavailable/not found/exhausted: %s", model_name, e)
-                        last_error = f"Gemini Error on {model_name}: {error_str}"
+                    if "503" in str(e) or "UNAVAILABLE" in str(e):
+                        logger.warning("Model %s overloaded: %s", model_name, e)
                         continue
                     raise e
                     
@@ -148,7 +157,5 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
-    if last_error:
-        return f"SYSTEM ERROR LOG:\n{last_error}\n\nPlease share this error.", "error", 0.0, False
     text, auto = _template_reply(original_subject, original_sender, reply_intent)
     return text, "template", 0.5, auto
