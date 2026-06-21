@@ -642,6 +642,9 @@ def connect_gmail(request: Request, user: dict = Depends(get_current_user)):
         auth_url, state = flow.authorization_url(prompt="consent", access_type="offline")
         db.save_oauth_state(DB_PATH, state, user["id"])
         
+        # Save code_verifier for PKCE validation in the callback
+        _oauth_flows[state] = getattr(flow, "code_verifier", None)
+        
         return {"ok": True, "auth_url": auth_url}
     except Exception as e:
         logger.error("Failed to generate auth url: %s", e)
@@ -674,6 +677,10 @@ def gmail_callback(request: Request, state: str = None, code: str = None, error:
         redirect_uri = str(request.base_url).rstrip("/") + "/api/gmail/callback"
         flow = Flow.from_client_secrets_file(str(creds_path), scopes=GMAIL_SCOPES)
         flow.redirect_uri = redirect_uri
+        
+        # Restore PKCE code verifier
+        if state in _oauth_flows and _oauth_flows[state]:
+            flow.code_verifier = _oauth_flows.pop(state)
         
         # Fetch the token using the full authorization response URL
         flow.fetch_token(authorization_response=str(request.url))
