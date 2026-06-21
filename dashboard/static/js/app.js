@@ -155,7 +155,7 @@ function closeModal() {
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
-const views = { dashboard: renderDashboard, calendar: renderCalendar, 'work-mails': renderWorkMails, 'non-work-mails': renderNonWorkMails, replies: renderReplies, commitments: renderCommitments, relationships: renderRelationships, settings: renderSettings };
+const views = { dashboard: renderDashboard, calendar: renderCalendar, 'work-mails': renderWorkMails, 'non-work-mails': renderNonWorkMails, replies: renderReplies, commitments: renderCommitments, relationships: renderRelationships, knowledge: renderKnowledgeBase, settings: renderSettings };
 
 function toggleMobileMenu() {
     const sidebar = document.getElementById('sidebar');
@@ -1643,6 +1643,93 @@ async function deleteRelationship(id) {
         toast('Failed to delete', 'error');
     }
 }
+
+// ─── Knowledge Base View ────────────────────────────────────────────────────
+
+async function renderKnowledgeBase() {
+    const main = document.getElementById('main-content');
+    main.innerHTML = `
+        <div class="page-header">
+            <h2>Knowledge Base</h2>
+            <p class="page-subtitle">Add context (FAQs, policies, pricing) for the AI to use when drafting replies</p>
+        </div>
+        <div class="page-body">
+            <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
+        </div>
+    `;
+
+    try {
+        const kbEntries = await API.get('/api/knowledge');
+        
+        const rows = kbEntries.map(k => `
+            <div class="card" style="margin-bottom:1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)">
+                    <strong style="font-size:1rem">${escHtml(k.title)}</strong>
+                    <button class="btn btn-sm" style="color:var(--critical);border-color:transparent;background:transparent" onclick="deleteKnowledgeEntry(${k.id})">Delete</button>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);white-space:pre-wrap;max-height:150px;overflow-y:auto;padding-right:0.5rem;">${escHtml(k.content)}</div>
+            </div>
+        `).join('') || `<div class="empty-state"><div class="empty-desc">No knowledge base entries yet.</div></div>`;
+
+        main.querySelector('.page-body').innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 400px;gap:1.5rem;align-items:start">
+                <div style="display:flex;flex-direction:column;gap:1rem;">
+                    ${rows}
+                </div>
+
+                <div class="card" style="position:sticky;top:20px;">
+                    <h3 style="margin-bottom:1rem;font-size:1rem;color:var(--text-primary)">Add New Entry</h3>
+                    <form onsubmit="handleUpsertKnowledge(event)" style="display:flex;flex-direction:column;gap:1rem">
+                        <div class="form-group">
+                            <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">Title</label>
+                            <input type="text" id="kb-title" required placeholder="e.g., Pricing Information" style="width:100%;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary)">
+                        </div>
+                        <div class="form-group">
+                            <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">Content</label>
+                            <textarea id="kb-content" required placeholder="Paste FAQ, policy, or instructions here..." style="width:100%;height:200px;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary);resize:vertical;"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">Save to Knowledge Base</button>
+                    </form>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        main.querySelector('.page-body').innerHTML = `<div class="error-state">Failed to load knowledge base</div>`;
+    }
+}
+
+async function handleUpsertKnowledge(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    const oldText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    try {
+        await API.post('/api/knowledge', {
+            title: document.getElementById('kb-title').value,
+            content: document.getElementById('kb-content').value
+        });
+        toast('Knowledge entry saved', 'success');
+        renderKnowledgeBase();
+    } catch (err) {
+        toast('Failed to save', 'error');
+        btn.textContent = oldText;
+        btn.disabled = false;
+    }
+}
+
+async function deleteKnowledgeEntry(id) {
+    if (!confirm('Are you sure you want to delete this knowledge entry?')) return;
+    try {
+        await API.delete('/api/knowledge/' + id);
+        toast('Deleted successfully', 'success');
+        renderKnowledgeBase();
+    } catch (err) {
+        toast('Failed to delete', 'error');
+    }
+}
+
 
 // ─── Settings View ──────────────────────────────────────────────────────────
 

@@ -202,6 +202,20 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_base (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
         import os
         is_pg = bool(os.environ.get("DATABASE_URL"))
         
@@ -1221,6 +1235,64 @@ def delete_contact_relationship(db_path: str, user_id: int, rel_id: int) -> bool
         cursor = conn.execute(
             "DELETE FROM contact_relationships WHERE id = ? AND user_id = ?",
             (rel_id, user_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+# ─── Knowledge Base (RAG) ────────────────────────────────────────────────────
+
+def get_knowledge_base_entries(db_path: str, user_id: int) -> list[dict]:
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM knowledge_base WHERE user_id = ? ORDER BY title ASC",
+            (user_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def upsert_knowledge_base_entry(
+    db_path: str, user_id: int, title: str, content: str, entry_id: int | None = None
+) -> dict:
+    conn = get_db(db_path)
+    try:
+        now = _now_iso()
+        if entry_id:
+            conn.execute(
+                """
+                UPDATE knowledge_base
+                SET title = ?, content = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (title, content, now, entry_id, user_id)
+            )
+            ret_id = entry_id
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO knowledge_base (user_id, title, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                (user_id, title, content, now, now)
+            )
+            ret_id = cursor.fetchone()[0]
+
+        conn.commit()
+        row = conn.execute("SELECT * FROM knowledge_base WHERE id = ?", (ret_id,)).fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_knowledge_base_entry(db_path: str, user_id: int, entry_id: int) -> bool:
+    conn = get_db(db_path)
+    try:
+        cursor = conn.execute(
+            "DELETE FROM knowledge_base WHERE id = ? AND user_id = ?",
+            (entry_id, user_id)
         )
         conn.commit()
         return cursor.rowcount > 0

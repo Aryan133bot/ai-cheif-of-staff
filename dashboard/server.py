@@ -346,6 +346,10 @@ class ContactRelationshipCreate(BaseModel):
     importance: int = 50
     tone_preference: str = "professional"
 
+class KnowledgeBaseCreate(BaseModel):
+    title: str
+    content: str
+
 class TaskCreate(BaseModel):
     title: str
     deadline_type: str = "task"
@@ -726,6 +730,7 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
 
     contact_role = None
     tone_preference = None
+    knowledge_context = ""
     with db.get_db(DB_PATH) as conn:
         rel = conn.execute(
             "SELECT role, tone_preference FROM contact_relationships WHERE user_id = ? AND email_address = ?",
@@ -734,6 +739,15 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
         if rel:
             contact_role = rel["role"]
             tone_preference = rel["tone_preference"]
+            
+        kb_rows = conn.execute(
+            "SELECT title, content FROM knowledge_base WHERE user_id = ?",
+            (user["id"],)
+        ).fetchall()
+        if kb_rows:
+            knowledge_context = "KNOWLEDGE BASE CONTEXT:\n" + "\n\n".join(
+                [f"[{r['title']}]\n{r['content']}" for r in kb_rows]
+            )
 
     draft_text, model_used, confidence, auto_send_eligible = generate_reply_text(
         original_subject=body.original_subject,
@@ -742,6 +756,7 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
         reply_intent=body.reply_intent,
         contact_role=contact_role,
         tone_preference=tone_preference,
+        knowledge_context=knowledge_context,
     )
 
     data = {
@@ -779,6 +794,26 @@ def delete_relationship(rel_id: int, user: dict = Depends(get_current_user)):
     success = db.delete_contact_relationship(db_path=DB_PATH, user_id=user["id"], rel_id=rel_id)
     if not success:
         raise HTTPException(status_code=404, detail="Relationship not found")
+    return {"status": "deleted"}
+
+@app.get("/api/knowledge")
+def list_knowledge(user: dict = Depends(get_current_user)):
+    return db.get_knowledge_base_entries(db_path=DB_PATH, user_id=user["id"])
+
+@app.post("/api/knowledge", status_code=201)
+def upsert_knowledge(body: KnowledgeBaseCreate, user: dict = Depends(get_current_user)):
+    return db.upsert_knowledge_base_entry(
+        db_path=DB_PATH,
+        user_id=user["id"],
+        title=body.title,
+        content=body.content
+    )
+
+@app.delete("/api/knowledge/{entry_id}")
+def delete_knowledge(entry_id: int, user: dict = Depends(get_current_user)):
+    success = db.delete_knowledge_base_entry(db_path=DB_PATH, user_id=user["id"], entry_id=entry_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Knowledge entry not found")
     return {"status": "deleted"}
 
 @app.get("/api/replies")

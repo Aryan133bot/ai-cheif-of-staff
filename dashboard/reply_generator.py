@@ -64,6 +64,7 @@ def generate_reply_text(
     reply_intent: str = "follow_up",
     contact_role: str | None = None,
     tone_preference: str | None = None,
+    knowledge_context: str | None = None,
 ) -> tuple[str, str, float, bool]:
     """
     Generate a reply draft using the best available LLM.
@@ -77,12 +78,20 @@ def generate_reply_text(
             f"Ensure the tone of your reply is {tone_preference}.\n\n"
         )
 
+    knowledge_block = ""
+    if knowledge_context:
+        knowledge_block = (
+            f"{knowledge_context}\n\n"
+            f"INSTRUCTION: Use the knowledge base facts above to accurately answer any questions in the email.\n\n"
+        )
+
     user_message = (
         f"ORIGINAL EMAIL:\n"
         f"From: {original_sender}\n"
         f"Subject: {original_subject}\n\n"
         f"{original_body[:2000]}\n\n"
         f"---\n"
+        f"{knowledge_block}"
         f"{relationship_context}"
         f"REPLY INTENT: {reply_intent}\n\n"
         f"Draft a professional reply."
