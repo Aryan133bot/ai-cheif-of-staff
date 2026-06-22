@@ -107,8 +107,13 @@ def generate_reply_text(
     # 1. Try JSON ADC / Service Account if GOOGLE_CREDENTIALS_JSON is provided
     # 2. Else try gemini_key
     gemini_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-    google_creds = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    google_creds_raw = os.getenv("GOOGLE_CREDENTIALS_JSON")
     
+    # Only use google_creds for genai if it's actually a Service Account (not an OAuth Client ID)
+    google_creds = None
+    if google_creds_raw and '"type": "service_account"' in google_creds_raw:
+        google_creds = google_creds_raw
+
     if (gemini_key and gemini_key.lower() != "your-gemini-key-here") or google_creds:
         try:
             from google import genai
