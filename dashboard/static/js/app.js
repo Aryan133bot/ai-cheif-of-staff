@@ -741,106 +741,93 @@ async function renderCommitments() {
             </div>
             <button class="btn btn-primary btn-sm" onclick="showNewCommitmentModal()">+ New Commitment</button>
         </div>
-        <div class="page-body" style="display:grid; grid-template-columns: 250px 1fr; gap: 2rem; align-items: start;">
+        <div class="page-body">
+            <!-- Status Filters -->
+            <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm task-filter active" data-filter="">All Statuses</button>
+                <button class="btn btn-ghost btn-sm task-filter" data-filter="created">Created</button>
+                <button class="btn btn-ghost btn-sm task-filter" data-filter="in_progress">In Progress</button>
+                <button class="btn btn-ghost btn-sm task-filter" data-filter="blocked">Blocked</button>
+                <button class="btn btn-ghost btn-sm task-filter" data-filter="completed">Completed</button>
+                <button class="btn btn-ghost btn-sm task-filter" data-filter="dismissed">Dismissed</button>
+            </div>
             
-            <!-- Left Sidebar: Filters -->
-            <div class="filters-sidebar" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1.25rem;">
-                <h3 style="margin-top:0; margin-bottom:1rem; font-size:1.1rem; border-bottom:1px solid var(--border-color); padding-bottom:0.5rem;">Filters</h3>
-                
-                <!-- Category Filter (Prominent as requested) -->
-                <div class="filter-group" style="margin-bottom:1.5rem;">
-                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Category</h4>
-                    <div style="display:flex; flex-direction:column; gap:0.5rem;" id="filter-categories">
-                        ${categories.map(cat => `
-                            <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;">
-                                <input type="checkbox" value="${cat}" class="facet-category" onchange="applyCommitmentFilters()">
-                                ${escHtml(cat)}
-                            </label>
-                        `).join('')}
-                        ${categories.length === 0 ? '<span style="font-size:0.8rem;color:var(--text-tertiary)">No categories found</span>' : ''}
-                    </div>
-                </div>
-
-                <!-- Status Filter -->
-                <div class="filter-group" style="margin-bottom:1.5rem;">
-                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Status</h4>
-                    <div style="display:flex; flex-direction:column; gap:0.5rem;" id="filter-status">
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="created" class="facet-status" onchange="applyCommitmentFilters()"> Created</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="in_progress" class="facet-status" onchange="applyCommitmentFilters()"> In Progress</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="blocked" class="facet-status" onchange="applyCommitmentFilters()"> Blocked</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="completed" class="facet-status" onchange="applyCommitmentFilters()"> Completed</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="dismissed" class="facet-status" onchange="applyCommitmentFilters()"> Dismissed</label>
-                    </div>
-                </div>
-
-                <!-- Urgency Filter -->
-                <div class="filter-group" style="margin-bottom:1.5rem;">
-                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Urgency</h4>
-                    <div style="display:flex; flex-direction:column; gap:0.5rem;" id="filter-urgency">
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="critical" class="facet-urgency" onchange="applyCommitmentFilters()"> Critical</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="high" class="facet-urgency" onchange="applyCommitmentFilters()"> High</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="medium" class="facet-urgency" onchange="applyCommitmentFilters()"> Medium</label>
-                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="low" class="facet-urgency" onchange="applyCommitmentFilters()"> Low</label>
-                    </div>
-                </div>
-
-                <!-- Needs Review Filter -->
-                <div class="filter-group">
-                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Review Status</h4>
-                    <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;">
-                        <input type="checkbox" id="facet-review" onchange="applyCommitmentFilters()"> Needs Review
-                    </label>
-                </div>
-            </div>
-
-            <!-- Right Area: Task List -->
-            <div id="tasks-list-container" style="min-height:300px;">
-                <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
-            </div>
+            <!-- Category Filters (Tags) -->
+            ${categories.length > 0 ? `
+            <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;" id="category-filters-container">
+                <button class="pill active-tag cat-filter" data-cat="" style="cursor:pointer; border:1px solid var(--border-color); background:var(--primary); color:white;">All Categories</button>
+                ${categories.map(cat => `
+                    <button class="pill cat-filter" data-cat="${escHtml(cat)}" style="cursor:pointer; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-secondary);">${escHtml(cat)}</button>
+                `).join('')}
+            </div>` : ''}
+            
+            <div id="tasks-list-container"><div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div></div>
         </div>`;
 
-    // Fetch all tasks once
-    loadTasksFiltered();
+    // State for filtering
+    window._currentCommitmentFilters = {
+        status: '',
+        category: ''
+    };
+
+    // Attach Status Filter Listeners
+    main.querySelectorAll('.task-filter').forEach(btn => {
+        btn.addEventListener('click', () => {
+            main.querySelectorAll('.task-filter').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            window._currentCommitmentFilters.status = btn.dataset.filter;
+            applyFlatCommitmentFilters();
+        });
+    });
+
+    // Attach Category Filter Listeners
+    main.querySelectorAll('.cat-filter').forEach(btn => {
+        btn.addEventListener('click', () => {
+            main.querySelectorAll('.cat-filter').forEach(b => {
+                b.classList.remove('active-tag');
+                b.style.background = 'var(--bg-secondary)';
+                b.style.color = 'var(--text-secondary)';
+            });
+            btn.classList.add('active-tag');
+            btn.style.background = 'var(--primary)';
+            btn.style.color = 'white';
+            window._currentCommitmentFilters.category = btn.dataset.cat;
+            applyFlatCommitmentFilters();
+        });
+    });
+
+    // Fetch all tasks once for client-side filtering
+    loadTasksFilteredFlat();
 }
 
-async function loadTasksFiltered() {
+async function loadTasksFilteredFlat() {
     const container = document.getElementById('tasks-list-container');
     try {
-        // Fetch all tasks by passing status=all. Default limits is high enough.
         const tasks = await API.get('/api/tasks?status=all&limit=500');
         Store.setTasks(tasks);
-        
-        // Exclude completed and dismissed from initial view unless filtered
         window._allFetchedTasks = tasks;
-        applyCommitmentFilters();
-        
+        applyFlatCommitmentFilters();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-title">Error</div><div class="empty-desc">${escHtml(err.message)}</div></div>`;
     }
 }
 
-window.applyCommitmentFilters = function() {
+window.applyFlatCommitmentFilters = function() {
     const container = document.getElementById('tasks-list-container');
     if (!window._allFetchedTasks) return;
     
-    // Read checkbox states
-    const checkedCategories = Array.from(document.querySelectorAll('.facet-category:checked')).map(cb => cb.value);
-    const checkedStatuses = Array.from(document.querySelectorAll('.facet-status:checked')).map(cb => cb.value);
-    const checkedUrgencies = Array.from(document.querySelectorAll('.facet-urgency:checked')).map(cb => cb.value);
-    const needsReviewChecked = document.getElementById('facet-review')?.checked;
+    const { status, category } = window._currentCommitmentFilters;
 
-    // Filter logic
     let filtered = window._allFetchedTasks.filter(t => {
-        // Default Status behavior if no status checkboxes are checked: hide completed/dismissed
-        if (checkedStatuses.length === 0) {
+        // Status filter
+        if (!status) {
             if (t.status === 'completed' || t.status === 'dismissed') return false;
         } else {
-            if (!checkedStatuses.includes(t.status)) return false;
+            if (t.status !== status) return false;
         }
         
-        if (checkedCategories.length > 0 && !checkedCategories.includes(t.deadline_type)) return false;
-        if (checkedUrgencies.length > 0 && !checkedUrgencies.includes(t.urgency)) return false;
-        if (needsReviewChecked && !t.review_required) return false;
+        // Category filter
+        if (category && t.deadline_type !== category) return false;
         
         return true;
     });
