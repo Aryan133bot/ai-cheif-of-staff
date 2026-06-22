@@ -724,6 +724,15 @@ function viewEmailDetails(email) {
 
 async function renderCommitments() {
     const main = document.getElementById('main-content');
+    
+    // Fetch available tags/categories first
+    let categories = [];
+    try {
+        categories = await API.get('/api/emails/tags');
+    } catch(e) {
+        console.error("Failed to fetch tags", e);
+    }
+    
     main.innerHTML = `
         <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
             <div>
@@ -732,42 +741,114 @@ async function renderCommitments() {
             </div>
             <button class="btn btn-primary btn-sm" onclick="showNewCommitmentModal()">+ New Commitment</button>
         </div>
-        <div class="page-body">
-            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
-                <button class="btn btn-ghost btn-sm task-filter active" data-filter="">All</button>
-                <button class="btn btn-ghost btn-sm task-filter" data-filter="created">Created</button>
-                <button class="btn btn-ghost btn-sm task-filter" data-filter="in_progress">In Progress</button>
-                <button class="btn btn-ghost btn-sm task-filter" data-filter="blocked">Blocked</button>
-                <button class="btn btn-ghost btn-sm task-filter" data-filter="completed">Completed</button>
-                <button class="btn btn-ghost btn-sm task-filter" data-filter="dismissed">Dismissed</button>
+        <div class="page-body" style="display:grid; grid-template-columns: 250px 1fr; gap: 2rem; align-items: start;">
+            
+            <!-- Left Sidebar: Filters -->
+            <div class="filters-sidebar" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1.25rem;">
+                <h3 style="margin-top:0; margin-bottom:1rem; font-size:1.1rem; border-bottom:1px solid var(--border-color); padding-bottom:0.5rem;">Filters</h3>
+                
+                <!-- Category Filter (Prominent as requested) -->
+                <div class="filter-group" style="margin-bottom:1.5rem;">
+                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Category</h4>
+                    <div style="display:flex; flex-direction:column; gap:0.5rem;" id="filter-categories">
+                        ${categories.map(cat => `
+                            <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;">
+                                <input type="checkbox" value="${cat}" class="facet-category" onchange="applyCommitmentFilters()">
+                                ${escHtml(cat)}
+                            </label>
+                        `).join('')}
+                        ${categories.length === 0 ? '<span style="font-size:0.8rem;color:var(--text-tertiary)">No categories found</span>' : ''}
+                    </div>
+                </div>
+
+                <!-- Status Filter -->
+                <div class="filter-group" style="margin-bottom:1.5rem;">
+                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Status</h4>
+                    <div style="display:flex; flex-direction:column; gap:0.5rem;" id="filter-status">
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="created" class="facet-status" onchange="applyCommitmentFilters()"> Created</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="in_progress" class="facet-status" onchange="applyCommitmentFilters()"> In Progress</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="blocked" class="facet-status" onchange="applyCommitmentFilters()"> Blocked</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="completed" class="facet-status" onchange="applyCommitmentFilters()"> Completed</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="dismissed" class="facet-status" onchange="applyCommitmentFilters()"> Dismissed</label>
+                    </div>
+                </div>
+
+                <!-- Urgency Filter -->
+                <div class="filter-group" style="margin-bottom:1.5rem;">
+                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Urgency</h4>
+                    <div style="display:flex; flex-direction:column; gap:0.5rem;" id="filter-urgency">
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="critical" class="facet-urgency" onchange="applyCommitmentFilters()"> Critical</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="high" class="facet-urgency" onchange="applyCommitmentFilters()"> High</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="medium" class="facet-urgency" onchange="applyCommitmentFilters()"> Medium</label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;"><input type="checkbox" value="low" class="facet-urgency" onchange="applyCommitmentFilters()"> Low</label>
+                    </div>
+                </div>
+
+                <!-- Needs Review Filter -->
+                <div class="filter-group">
+                    <h4 style="margin:0 0 0.75rem 0; font-size:0.9rem; color:var(--text-secondary);">Review Status</h4>
+                    <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; cursor:pointer;">
+                        <input type="checkbox" id="facet-review" onchange="applyCommitmentFilters()"> Needs Review
+                    </label>
+                </div>
             </div>
-            <div id="tasks-list-container"><div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div></div>
+
+            <!-- Right Area: Task List -->
+            <div id="tasks-list-container" style="min-height:300px;">
+                <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
+            </div>
         </div>`;
 
-    loadTasksFiltered('');
-
-    main.querySelectorAll('.task-filter').forEach(btn => {
-        btn.addEventListener('click', () => {
-            main.querySelectorAll('.task-filter').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            loadTasksFiltered(btn.dataset.filter);
-        });
-    });
+    // Fetch all tasks once
+    loadTasksFiltered();
 }
 
-async function loadTasksFiltered(status) {
+async function loadTasksFiltered() {
     const container = document.getElementById('tasks-list-container');
     try {
-        const url = status ? `/api/tasks?status=${status}&limit=100` : '/api/tasks?limit=100';
-        const tasks = await API.get(url);
+        // Fetch all tasks by passing status=all. Default limits is high enough.
+        const tasks = await API.get('/api/tasks?status=all&limit=500');
         Store.setTasks(tasks);
-        container.innerHTML = tasks.length
-            ? renderTaskList(tasks)
-            : emptyState('No tasks found', 'Try a different filter');
+        
+        // Exclude completed and dismissed from initial view unless filtered
+        window._allFetchedTasks = tasks;
+        applyCommitmentFilters();
+        
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="empty-title">Error</div><div class="empty-desc">${escHtml(err.message)}</div></div>`;
     }
 }
+
+window.applyCommitmentFilters = function() {
+    const container = document.getElementById('tasks-list-container');
+    if (!window._allFetchedTasks) return;
+    
+    // Read checkbox states
+    const checkedCategories = Array.from(document.querySelectorAll('.facet-category:checked')).map(cb => cb.value);
+    const checkedStatuses = Array.from(document.querySelectorAll('.facet-status:checked')).map(cb => cb.value);
+    const checkedUrgencies = Array.from(document.querySelectorAll('.facet-urgency:checked')).map(cb => cb.value);
+    const needsReviewChecked = document.getElementById('facet-review')?.checked;
+
+    // Filter logic
+    let filtered = window._allFetchedTasks.filter(t => {
+        // Default Status behavior if no status checkboxes are checked: hide completed/dismissed
+        if (checkedStatuses.length === 0) {
+            if (t.status === 'completed' || t.status === 'dismissed') return false;
+        } else {
+            if (!checkedStatuses.includes(t.status)) return false;
+        }
+        
+        if (checkedCategories.length > 0 && !checkedCategories.includes(t.deadline_type)) return false;
+        if (checkedUrgencies.length > 0 && !checkedUrgencies.includes(t.urgency)) return false;
+        if (needsReviewChecked && !t.review_required) return false;
+        
+        return true;
+    });
+
+    container.innerHTML = filtered.length
+        ? renderTaskList(filtered)
+        : emptyState('No tasks match filters', 'Try adjusting your selection');
+};
 
 function showNewCommitmentModal() {
     const bodyHtml = `

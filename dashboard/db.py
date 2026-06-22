@@ -282,8 +282,9 @@ def get_all_tasks(
         clauses = ["user_id = ?"] if user_id else []
         params: list = [user_id] if user_id else []
         if status:
-            clauses.append("status = ?")
-            params.append(status)
+            if status != "all":
+                clauses.append("status = ?")
+                params.append(status)
         else:
             clauses.append("status NOT IN ('completed', 'dismissed')")
             
