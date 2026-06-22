@@ -35,29 +35,29 @@ def _template_reply(subject: str, sender: str, intent: str, last_error: str = ""
     templates = {
         "follow_up": (
             f"Hi {sender_name},\n\n"
-            f"[TEMPLATE_TRACER_123] Following up on your recent email. Could you share an update on this when you get a chance?\n\n"
+            f"Following up on your recent email. Could you share an update on this when you get a chance?\n\n"
             f"Thanks,"
         ),
         "acknowledge": (
             f"Hi {sender_name},\n\n"
-            f"[TEMPLATE_TRACER_123] Thank you for your recent email. I've noted the details and will get back to you shortly.\n\n"
+            f"Thank you for your recent email. I've noted the details and will get back to you shortly.\n\n"
             f"Best,"
         ),
         "request_info": (
             f"Hi {sender_name},\n\n"
-            f"[TEMPLATE_TRACER_123] Thanks for reaching out. Could you provide some additional details regarding your email so I can review this properly?\n\n"
+            f"Thanks for reaching out. Could you provide some additional details regarding your email so I can review this properly?\n\n"
             f"Thanks,"
         ),
         "decline": (
             f"Hi {sender_name},\n\n"
-            f"[TEMPLATE_TRACER_123] Thank you for your recent email. Unfortunately, I won't be able to proceed with this at the moment. I'll reach out if anything changes.\n\n"
+            f"Thank you for your recent email. Unfortunately, I won't be able to proceed with this at the moment. I'll reach out if anything changes.\n\n"
             f"Best regards,"
         ),
     }
     
     text = templates.get(intent, templates["follow_up"])
     if last_error:
-        text = f"[DEBUG ERROR: {last_error}]\n\n" + text
+        text += f"\n\n[DEBUG ERROR: {last_error}]"
         
     return text, False
 
@@ -130,7 +130,15 @@ def generate_reply_text(
             else:
                 client = genai.Client(api_key=gemini_key)
 
-            models_to_try = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
+            models_to_try = [
+                "gemini-2.5-flash",
+                "gemini-2.0-flash", 
+                "gemini-1.5-flash-latest", 
+                "gemini-1.5-pro-latest", 
+                "gemini-1.5-flash", 
+                "gemini-1.5-pro", 
+                "gemini-1.0-pro"
+            ]
             
             for model_name in models_to_try:
                 try:
@@ -185,7 +193,5 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
-    # ULTIMATE DEBUG INJECTION
-    debug_info = f"gemini_key_len={len(gemini_key)} google_creds_len={len(google_creds) if google_creds else 0} last_error={last_error}"
-    text, auto = _template_reply(original_subject, original_sender, reply_intent, debug_info)
+    text, auto = _template_reply(original_subject, original_sender, reply_intent, "")
     return text, "template", 0.5, auto
