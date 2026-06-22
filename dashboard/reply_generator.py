@@ -27,7 +27,7 @@ You MUST return your response as a valid JSON object with EXACTLY two keys:
 Do not output any markdown formatting around the JSON, just the raw JSON object."""
 
 
-def _template_reply(subject: str, sender: str, intent: str) -> tuple[str, bool]:
+def _template_reply(subject: str, sender: str, intent: str, last_error: str = "") -> tuple[str, bool]:
     sender_name = sender.split("<")[0].strip().split("@")[0].strip()
     if not sender_name or sender_name == sender:
         sender_name = "there"
@@ -54,7 +54,12 @@ def _template_reply(subject: str, sender: str, intent: str) -> tuple[str, bool]:
             f"Best regards,"
         ),
     }
-    return templates.get(intent, templates["follow_up"]), False
+    
+    text = templates.get(intent, templates["follow_up"])
+    if last_error:
+        text += f"\n\n[DEBUG ERROR: {last_error}]"
+        
+    return text, False
 
 
 def generate_reply_text(
@@ -175,5 +180,5 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
-    text, auto = _template_reply(original_subject, original_sender, reply_intent)
+    text, auto = _template_reply(original_subject, original_sender, reply_intent, last_error)
     return text, "template", 0.5, auto
