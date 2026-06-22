@@ -35,22 +35,22 @@ def _template_reply(subject: str, sender: str, intent: str, last_error: str = ""
     templates = {
         "follow_up": (
             f"Hi {sender_name},\n\n"
-            f"Following up on your recent email. Could you share an update on this when you get a chance?\n\n"
+            f"[TEMPLATE_TRACER_123] Following up on your recent email. Could you share an update on this when you get a chance?\n\n"
             f"Thanks,"
         ),
         "acknowledge": (
             f"Hi {sender_name},\n\n"
-            f"Thank you for your recent email. I've noted the details and will get back to you shortly.\n\n"
+            f"[TEMPLATE_TRACER_123] Thank you for your recent email. I've noted the details and will get back to you shortly.\n\n"
             f"Best,"
         ),
         "request_info": (
             f"Hi {sender_name},\n\n"
-            f"Thanks for reaching out. Could you provide some additional details regarding your email so I can review this properly?\n\n"
+            f"[TEMPLATE_TRACER_123] Thanks for reaching out. Could you provide some additional details regarding your email so I can review this properly?\n\n"
             f"Thanks,"
         ),
         "decline": (
             f"Hi {sender_name},\n\n"
-            f"Thank you for your recent email. Unfortunately, I won't be able to proceed with this at the moment. I'll reach out if anything changes.\n\n"
+            f"[TEMPLATE_TRACER_123] Thank you for your recent email. Unfortunately, I won't be able to proceed with this at the moment. I'll reach out if anything changes.\n\n"
             f"Best regards,"
         ),
     }
