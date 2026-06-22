@@ -611,6 +611,7 @@ def get_fetched_emails_list(
     offset: int = Query(default=0, ge=0),
     status: str | None = None,
     category: str | None = None,
+    tag: str | None = None,
     user: dict = Depends(get_current_user),
 ):
     """Get fetched emails for the current user with pagination support."""
@@ -621,7 +622,13 @@ def get_fetched_emails_list(
         offset=offset,
         status=status,
         category=category,
+        tag=tag,
     )
+
+@app.get("/api/emails/tags")
+def get_email_tags_list(user: dict = Depends(get_current_user)):
+    """Get all unique categories/tags (deadline_types) associated with the user's emails."""
+    return db.get_email_tags(db_path=DB_PATH, user_id=user["id"])
 
 
 # ─── Gmail OAuth ─────────────────────────────────────────────────────────────

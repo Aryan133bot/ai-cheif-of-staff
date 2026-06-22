@@ -533,13 +533,12 @@ async function renderNonWorkMails() {
     await renderEmailList('miscellaneous', 'Non-Work Mails', 'Newsletters, alerts, and miscellaneous');
 }
 
-// Per-view email store (keyed by category) — fixes shared global state bug
+// Per-view email store (keyed by category)
 const _emailStore = {};
 
 async function renderEmailList(category, title, subtitle) {
     const main = document.getElementById('main-content');
-    // Track pagination state per category
-    _emailStore[category] = _emailStore[category] || { emails: [], offset: 0, hasMore: false };
+    _emailStore[category] = _emailStore[category] || { emails: [], offset: 0, hasMore: false, activeTag: null };
     const PAGE_SIZE = 50;
 
     main.innerHTML = `
@@ -550,36 +549,90 @@ async function renderEmailList(category, title, subtitle) {
             </div>
             <button class="btn btn-primary btn-sm" onclick="processEmails()" id="btn-process-emails">Process Emails</button>
         </div>
+        <div class="email-tags-container" style="display:flex; gap:0.5rem; margin-bottom:1rem; overflow-x:auto; padding-bottom:0.5rem; min-height:40px;">
+            <div class="spinner" style="width:20px;height:20px;margin:10px;"></div>
+        </div>
         <div class="page-body">
             <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
         </div>`;
 
-    await _loadEmailPage(category, PAGE_SIZE, 0, true);
+    // Fetch tags asynchronously
+    API.get('/api/emails/tags').then(tags => {
+        const tagsContainer = main.querySelector('.email-tags-container');
+        if (!tagsContainer) return;
+        
+        let tagsHtml = `<button class="pill ${!_emailStore[category].activeTag ? 'active-tag' : ''}" style="cursor:pointer; border:1px solid var(--border-color); background:${!_emailStore[category].activeTag ? 'var(--primary)' : 'var(--bg-secondary)'}; color:${!_emailStore[category].activeTag ? 'white' : 'var(--text-secondary)'}" onclick="_filterEmailList('${category}', null)">All</button>`;
+        
+        tags.forEach(tag => {
+            const isActive = _emailStore[category].activeTag === tag;
+            tagsHtml += `<button class="pill ${isActive ? 'active-tag' : ''}" style="cursor:pointer; border:1px solid var(--border-color); background:${isActive ? 'var(--primary)' : 'var(--bg-secondary)'}; color:${isActive ? 'white' : 'var(--text-secondary)'}" onclick="_filterEmailList('${category}', '${tag}')">${escHtml(tag)}</button>`;
+        });
+        
+        tagsContainer.innerHTML = tagsHtml;
+    }).catch(err => {
+        console.error("Failed to fetch tags", err);
+        const tagsContainer = main.querySelector('.email-tags-container');
+        if (tagsContainer) tagsContainer.innerHTML = '';
+    });
+
+    await _loadEmailPage(category, PAGE_SIZE, 0, true, _emailStore[category].activeTag);
 }
 
-async function _loadEmailPage(category, limit, offset, replace) {
+window._filterEmailList = async function(category, tag) {
+    _emailStore[category].activeTag = tag;
+    
+    // Update active visual state immediately
+    const tagsContainer = document.querySelector('.email-tags-container');
+    if (tagsContainer) {
+        Array.from(tagsContainer.children).forEach(btn => {
+            if (btn.textContent === (tag || 'All')) {
+                btn.style.background = 'var(--primary)';
+                btn.style.color = 'white';
+            } else {
+                btn.style.background = 'var(--bg-secondary)';
+                btn.style.color = 'var(--text-secondary)';
+            }
+        });
+    }
+    
+    const main = document.getElementById('main-content');
+    const pageBody = main.querySelector('.page-body');
+    if (pageBody) {
+        pageBody.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>`;
+    }
+    
+    await _loadEmailPage(category, 50, 0, true, tag);
+};
+
+async function _loadEmailPage(category, limit, offset, replace, tag = null) {
     const main = document.getElementById('main-content');
     const pageBody = main.querySelector('.page-body');
     if (!pageBody) return;
 
     try {
-        const emails = await API.get(`/api/emails/fetched?limit=${limit + 1}&offset=${offset}&category=${category}`);
+        const tagParam = tag ? `&tag=${encodeURIComponent(tag)}` : '';
+        const emails = await API.get(`/api/emails/fetched?limit=${limit + 1}&offset=${offset}&category=${category}${tagParam}`);
         const hasMore = emails.length > limit;
         const page = hasMore ? emails.slice(0, limit) : emails;
 
         // Update scoped store
         if (replace) {
-            _emailStore[category] = { emails: page, offset, hasMore };
+            _emailStore[category] = { emails: page, offset, hasMore, activeTag: tag };
         } else {
             _emailStore[category].emails = [..._emailStore[category].emails, ...page];
             _emailStore[category].offset = offset;
             _emailStore[category].hasMore = hasMore;
+            _emailStore[category].activeTag = tag;
         }
 
         const allEmails = _emailStore[category].emails;
 
         if (!allEmails || allEmails.length === 0) {
-            pageBody.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">No emails fetched yet. Click "Process Emails" to sync.</div>';
+            if (tag) {
+                pageBody.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">No emails found with tag "${escHtml(tag)}".</div>`;
+            } else {
+                pageBody.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">No emails fetched yet. Click "Process Emails" to sync.</div>';
+            }
             return;
         }
 

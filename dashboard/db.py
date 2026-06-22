@@ -1127,24 +1127,41 @@ def get_fetched_emails(
     offset: int = 0,
     status: str | None = None,
     category: str | None = None,
+    tag: str | None = None,
 ) -> list[dict]:
     """Get fetched emails for a user with pagination support."""
     conn = get_db(db_path)
     try:
-        where = "WHERE user_id = ?"
+        where = "WHERE e.user_id = ?"
         params: list = [user_id]
         if status:
-            where += " AND processing_status = ?"
+            where += " AND e.processing_status = ?"
             params.append(status)
         if category:
-            where += " AND category = ?"
+            where += " AND e.category = ?"
             params.append(category)
+        if tag:
+            where += " AND e.email_id IN (SELECT source_email_id FROM tasks WHERE deadline_type = ? AND user_id = ?)"
+            params.extend([tag, user_id])
+            
         params.extend([limit, offset])
         rows = conn.execute(
-            f"SELECT * FROM fetched_emails {where} ORDER BY received_at DESC LIMIT ? OFFSET ?",
+            f"SELECT e.* FROM fetched_emails e {where} ORDER BY e.received_at DESC LIMIT ? OFFSET ?",
             params,
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def get_email_tags(db_path: str, user_id: int) -> list[str]:
+    """Get all unique categories/tags (deadline_types) associated with the user's emails."""
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT deadline_type FROM tasks WHERE user_id = ? AND deadline_type IS NOT NULL AND deadline_type != '' ORDER BY deadline_type",
+            (user_id,)
+        ).fetchall()
+        return [r["deadline_type"] for r in rows]
     finally:
         conn.close()
 
