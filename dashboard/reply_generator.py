@@ -57,7 +57,7 @@ def _template_reply(subject: str, sender: str, intent: str, last_error: str = ""
     
     text = templates.get(intent, templates["follow_up"])
     if last_error:
-        text += f"\n\n[DEBUG ERROR: {last_error}]"
+        text = f"[DEBUG ERROR: {last_error}]\n\n" + text
         
     return text, False
 
