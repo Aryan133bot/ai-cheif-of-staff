@@ -253,12 +253,26 @@ def auth_status():
 
 @app.get("/api/debug/env")
 def debug_env():
+    import traceback
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    models = []
+    error_str = ""
+    if gemini_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=gemini_key)
+            models = [m.name for m in client.models.list()]
+        except Exception as e:
+            error_str = traceback.format_exc()
+            
     return {
-        "gemini_key_exists": bool(os.getenv("GEMINI_API_KEY")),
-        "gemini_key_prefix": os.getenv("GEMINI_API_KEY", "")[:5],
+        "gemini_key_exists": bool(gemini_key),
+        "gemini_key_prefix": gemini_key[:5] if gemini_key else "",
         "google_creds_exists": bool(os.getenv("GOOGLE_CREDENTIALS_JSON")),
         "google_creds_type": "service_account" in os.getenv("GOOGLE_CREDENTIALS_JSON", ""),
         "anthropic_key_exists": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "available_models": models,
+        "list_error": error_str
     }
 
 
