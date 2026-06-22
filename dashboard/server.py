@@ -251,6 +251,16 @@ def auth_status():
     """Check if any account exists — tells frontend to show setup or login."""
     return {"has_account": auth.has_any_account(DB_PATH)}
 
+@app.get("/api/debug/env")
+def debug_env():
+    return {
+        "gemini_key_exists": bool(os.getenv("GEMINI_API_KEY")),
+        "gemini_key_prefix": os.getenv("GEMINI_API_KEY", "")[:5],
+        "google_creds_exists": bool(os.getenv("GOOGLE_CREDENTIALS_JSON")),
+        "google_creds_type": "service_account" in os.getenv("GOOGLE_CREDENTIALS_JSON", ""),
+        "anthropic_key_exists": bool(os.getenv("ANTHROPIC_API_KEY")),
+    }
+
 
 @app.post("/api/auth/register")
 def register(body: RegisterBody):
