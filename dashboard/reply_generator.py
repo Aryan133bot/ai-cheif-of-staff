@@ -185,5 +185,7 @@ def generate_reply_text(
 
     logger.info("No valid AI API key — using template-based reply fallback")
     
-    text, auto = _template_reply(original_subject, original_sender, reply_intent, last_error)
+    # ULTIMATE DEBUG INJECTION
+    debug_info = f"gemini_key_len={len(gemini_key)} google_creds_len={len(google_creds) if google_creds else 0} last_error={last_error}"
+    text, auto = _template_reply(original_subject, original_sender, reply_intent, debug_info)
     return text, "template", 0.5, auto
