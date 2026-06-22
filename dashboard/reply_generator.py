@@ -131,14 +131,23 @@ def generate_reply_text(
                             response_mime_type="application/json"
                         )
                     )
-                    data = json.loads(response.text.strip())
+                    raw_text = response.text.strip()
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text[7:]
+                    if raw_text.startswith("```"):
+                        raw_text = raw_text[3:]
+                    if raw_text.endswith("```"):
+                        raw_text = raw_text[:-3]
+                    raw_text = raw_text.strip()
+                    data = json.loads(raw_text)
                     return data.get("draft_text", "").strip(), model_name, 0.85, data.get("auto_send_eligible", False)
                 except Exception as e:
-                    if "503" in str(e) or "UNAVAILABLE" in str(e):
-                        logger.warning("Model %s overloaded: %s", model_name, e)
-                        continue
-                    raise e
-                    
+                    logger.warning("Model %s failed: %s", model_name, e)
+                    last_error = str(e)
+                    continue
+            
+            if last_error:
+                raise Exception(last_error)
         except Exception as e:
             logger.error("Gemini reply generation failed: %s — trying next provider", e)
             last_error = f"Gemini Error: {str(e)}"
