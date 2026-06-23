@@ -10,3 +10,8 @@ google-auth-oauthlib
 google-api-python-client
 google-genai
 psycopg2-binary
+chromadb
+sentence-transformers
+beautifulsoup4
+requests
+pymupdf

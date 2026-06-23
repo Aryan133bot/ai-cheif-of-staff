@@ -209,6 +209,8 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                source TEXT NOT NULL DEFAULT 'Manual Entry',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -246,6 +248,12 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         ):
             if col not in draft_columns:
                 conn.execute(ddl)
+
+        kb_columns = get_columns("knowledge_base")
+        if "status" not in kb_columns:
+            conn.execute("ALTER TABLE knowledge_base ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+        if "source" not in kb_columns:
+            conn.execute("ALTER TABLE knowledge_base ADD COLUMN source TEXT NOT NULL DEFAULT 'Manual Entry'")
 
         # Multi-tenant migrations
         for table in ["tasks", "calendar_events", "reply_drafts", "email_processing_runs", "fetched_emails"]:
@@ -1261,19 +1269,25 @@ def delete_contact_relationship(db_path: str, user_id: int, rel_id: int) -> bool
 
 # ─── Knowledge Base (RAG) ────────────────────────────────────────────────────
 
-def get_knowledge_base_entries(db_path: str, user_id: int) -> list[dict]:
+def get_knowledge_base_entries(db_path: str, user_id: int, status: str | None = None) -> list[dict]:
     conn = get_db(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM knowledge_base WHERE user_id = ? ORDER BY title ASC",
-            (user_id,)
-        ).fetchall()
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM knowledge_base WHERE user_id = ? AND status = ? ORDER BY title ASC",
+                (user_id, status)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM knowledge_base WHERE user_id = ? ORDER BY title ASC",
+                (user_id,)
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 def upsert_knowledge_base_entry(
-    db_path: str, user_id: int, title: str, content: str, entry_id: int | None = None
+    db_path: str, user_id: int, title: str, content: str, entry_id: int | None = None, status: str = "active", source: str = "Manual Entry"
 ) -> dict:
     conn = get_db(db_path)
     try:
@@ -1282,20 +1296,20 @@ def upsert_knowledge_base_entry(
             conn.execute(
                 """
                 UPDATE knowledge_base
-                SET title = ?, content = ?, updated_at = ?
+                SET title = ?, content = ?, status = ?, source = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?
                 """,
-                (title, content, now, entry_id, user_id)
+                (title, content, status, source, now, entry_id, user_id)
             )
             ret_id = entry_id
         else:
             cursor = conn.execute(
                 """
-                INSERT INTO knowledge_base (user_id, title, content, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO knowledge_base (user_id, title, content, status, source, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """,
-                (user_id, title, content, now, now)
+                (user_id, title, content, status, source, now, now)
             )
             ret_id = cursor.fetchone()[0]
 

@@ -22,13 +22,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, HTTPException, Query, Depends, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import db
+import vector_store
+import ingestion_service
 from reply_generator import generate_reply_text
 from reply_sender import mark_draft_send_failed, mark_draft_sent, send_approved_reply
 from auth import (
@@ -373,6 +375,15 @@ class ContactRelationshipCreate(BaseModel):
 class KnowledgeBaseCreate(BaseModel):
     title: str
     content: str
+    status: str = "active"
+    entry_id: int | None = None
+    source: str = "Manual Entry"
+
+class EmailExtractRequest(BaseModel):
+    email_body: str
+
+class UrlIngestRequest(BaseModel):
+    url: str
 
 class TaskCreate(BaseModel):
     title: str
@@ -771,14 +782,9 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
             contact_role = rel["role"]
             tone_preference = rel["tone_preference"]
             
-        kb_rows = conn.execute(
-            "SELECT title, content FROM knowledge_base WHERE user_id = ?",
-            (user["id"],)
-        ).fetchall()
-        if kb_rows:
-            knowledge_context = "KNOWLEDGE BASE CONTEXT:\n" + "\n\n".join(
-                [f"[{r['title']}]\n{r['content']}" for r in kb_rows]
-            )
+        relevant_facts = vector_store.query_collection(user_id=user["id"], query=body.original_body, n_results=5)
+        if relevant_facts:
+            knowledge_context = "KNOWLEDGE BASE CONTEXT:\n" + "\n\n".join(relevant_facts)
 
     draft_text, model_used, confidence, auto_send_eligible = generate_reply_text(
         original_subject=body.original_subject,
@@ -833,18 +839,94 @@ def list_knowledge(user: dict = Depends(get_current_user)):
 
 @app.post("/api/knowledge", status_code=201)
 def upsert_knowledge(body: KnowledgeBaseCreate, user: dict = Depends(get_current_user)):
-    return db.upsert_knowledge_base_entry(
+    entry = db.upsert_knowledge_base_entry(
         db_path=DB_PATH,
         user_id=user["id"],
         title=body.title,
-        content=body.content
+        content=body.content,
+        entry_id=body.entry_id,
+        status=body.status,
+        source=body.source
     )
+    if entry.get("status") == "active":
+        vector_store.add_to_collection(user["id"], entry["id"], entry["title"], entry["content"])
+    elif entry.get("status") == "draft" and body.entry_id:
+        vector_store.delete_from_collection(user["id"], entry["id"])
+    return entry
+
+from google import genai
+_dedup_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+def _is_duplicate_fact(user_id: int, title: str, content: str) -> bool:
+    query_text = f"Title: {title}\nContent: {content}"
+    similar_facts = vector_store.query_collection(user_id=user_id, query=query_text, n_results=3)
+    if not similar_facts:
+        return False
+        
+    prompt = f"""
+    You are managing a Knowledge Base. We are trying to add a NEW FACT.
+    Please check if this NEW FACT is already covered by the EXISTING FACTS.
+    If it is substantially the same or a duplicate, reply exactly with: DUPLICATE
+    If it is new, different, or updates old info, reply exactly with: KEEP
+    
+    NEW FACT:
+    Title: {title}
+    Content: {content}
+    
+    EXISTING FACTS:
+    {chr(10).join(similar_facts)}
+    """
+    try:
+        response = _dedup_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return "DUPLICATE" in response.text.upper()
+    except:
+        return False
+
+@app.post("/api/knowledge/extract")
+def extract_email_knowledge(body: EmailExtractRequest, user: dict = Depends(get_current_user)):
+    facts = ingestion_service.extract_facts_from_email(body.email_body)
+    entries = []
+    for f in facts:
+        if _is_duplicate_fact(user["id"], f["title"], f["content"]):
+            continue
+        entry = db.upsert_knowledge_base_entry(DB_PATH, user["id"], title=f["title"], content=f["content"], status="draft", source="Extracted from Email")
+        entries.append(entry)
+    return {"facts": entries}
+
+@app.post("/api/knowledge/ingest-url")
+def ingest_url_endpoint(body: UrlIngestRequest, user: dict = Depends(get_current_user)):
+    facts = ingestion_service.ingest_url(body.url)
+    entries = []
+    source_str = f"Scraped from URL: {body.url}"
+    for f in facts:
+        if _is_duplicate_fact(user["id"], f["title"], f["content"]):
+            continue
+        entry = db.upsert_knowledge_base_entry(DB_PATH, user["id"], title=f["title"], content=f["content"], status="draft", source=source_str)
+        entries.append(entry)
+    return {"facts": entries}
+
+@app.post("/api/knowledge/upload-doc")
+async def upload_doc_endpoint(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    facts = ingestion_service.ingest_document(content, file.filename)
+    entries = []
+    source_str = f"Uploaded Document: {file.filename}"
+    for f in facts:
+        if _is_duplicate_fact(user["id"], f["title"], f["content"]):
+            continue
+        entry = db.upsert_knowledge_base_entry(DB_PATH, user["id"], title=f["title"], content=f["content"], status="draft", source=source_str)
+        entries.append(entry)
+    return {"facts": entries}
 
 @app.delete("/api/knowledge/{entry_id}")
 def delete_knowledge(entry_id: int, user: dict = Depends(get_current_user)):
     success = db.delete_knowledge_base_entry(db_path=DB_PATH, user_id=user["id"], entry_id=entry_id)
     if not success:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    vector_store.delete_from_collection(user["id"], entry_id)
     return {"status": "deleted"}
 
 @app.get("/api/replies")

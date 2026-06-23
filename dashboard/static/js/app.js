@@ -715,8 +715,25 @@ function viewEmailDetails(email) {
         email.subject || '(no subject)', 
         bodyHtml, 
         `<button class="btn btn-ghost" onclick="closeModal()">Close</button>
+         <button class="btn" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary)" onclick="extractToKB('${email.category || 'miscellaneous'}', ${email.id})">Extract to KB</button>
          <button class="btn btn-primary" onclick="closeModal(); setTimeout(() => openReplyModalForEmail('${email.category || 'miscellaneous'}', ${email.id}), 300);">Draft Reply</button>`
     );
+}
+
+async function extractToKB(category, id) {
+    const store = _emailStore[category];
+    if (!store) return;
+    const email = store.emails.find(e => e.id === id);
+    if (!email) return;
+    
+    closeModal();
+    toast('Extracting facts to Knowledge Base...', 'info');
+    try {
+        await API.post('/api/knowledge/extract', { email_body: email.body_preview });
+        toast('Facts extracted and saved as drafts!', 'success');
+    } catch(err) {
+        toast('Extraction failed', 'error');
+    }
 }
 
 
@@ -1772,7 +1789,7 @@ async function renderKnowledgeBase() {
     main.innerHTML = `
         <div class="page-header">
             <h2>Knowledge Base</h2>
-            <p class="page-subtitle">Add context (FAQs, policies, pricing) for the AI to use when drafting replies</p>
+            <p class="page-subtitle">Manage knowledge base entries for AI replies. Draft facts require your approval.</p>
         </div>
         <div class="page-body">
             <div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>
@@ -1781,36 +1798,76 @@ async function renderKnowledgeBase() {
 
     try {
         const kbEntries = await API.get('/api/knowledge');
+        const activeEntries = kbEntries.filter(k => k.status !== 'draft');
+        const draftEntries = kbEntries.filter(k => k.status === 'draft');
         
-        const rows = kbEntries.map(k => `
+        const renderRow = (k, isDraft) => `
             <div class="card" style="margin-bottom:1rem;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
                     <strong style="font-size:1rem">${escHtml(k.title)}</strong>
-                    <button class="btn btn-sm" style="color:var(--critical);border-color:transparent;background:transparent" onclick="deleteKnowledgeEntry(${k.id})">Delete</button>
+                    <div>
+                        ${isDraft ? `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem;" onclick="approveKnowledgeDraft(${k.id}, '${escHtml(k.title.replace(/'/g, "\\'"))}', '${escHtml(k.content.replace(/'/g, "\\'"))}', '${escHtml((k.source || '').replace(/'/g, "\\'"))}')">Approve</button>` : ''}
+                        <button class="btn btn-sm" style="color:var(--critical);border-color:transparent;background:transparent" onclick="deleteKnowledgeEntry(${k.id})">${isDraft ? 'Reject' : 'Delete'}</button>
+                    </div>
+                </div>
+                <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:0.75rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)">
+                    <em>Source: ${escHtml(k.source || 'Manual Entry')}</em>
                 </div>
                 <div style="font-size:0.85rem;color:var(--text-secondary);white-space:pre-wrap;max-height:150px;overflow-y:auto;padding-right:0.5rem;">${escHtml(k.content)}</div>
             </div>
-        `).join('') || `<div class="empty-state"><div class="empty-desc">No knowledge base entries yet.</div></div>`;
+        `;
+
+        const activeRows = activeEntries.map(k => renderRow(k, false)).join('') || `<div class="empty-state"><div class="empty-desc">No active knowledge base entries.</div></div>`;
+        const draftRows = draftEntries.map(k => renderRow(k, true)).join('') || `<div class="empty-state"><div class="empty-desc">No pending drafts.</div></div>`;
 
         main.querySelector('.page-body').innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 400px;gap:1.5rem;align-items:start">
-                <div style="display:flex;flex-direction:column;gap:1rem;">
-                    ${rows}
+                <div style="display:flex;flex-direction:column;gap:2rem;">
+                    <div>
+                        <h3 style="margin-bottom:1rem;color:var(--text-primary)">Pending Drafts</h3>
+                        ${draftRows}
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom:1rem;color:var(--text-primary)">Active Knowledge</h3>
+                        ${activeRows}
+                    </div>
                 </div>
 
-                <div class="card" style="position:sticky;top:20px;">
-                    <h3 style="margin-bottom:1rem;font-size:1rem;color:var(--text-primary)">Add New Entry</h3>
-                    <form onsubmit="handleUpsertKnowledge(event)" style="display:flex;flex-direction:column;gap:1rem">
-                        <div class="form-group">
-                            <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">Title</label>
-                            <input type="text" id="kb-title" required placeholder="e.g., Pricing Information" style="width:100%;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary)">
-                        </div>
-                        <div class="form-group">
-                            <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">Content</label>
-                            <textarea id="kb-content" required placeholder="Paste FAQ, policy, or instructions here..." style="width:100%;height:200px;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary);resize:vertical;"></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">Save to Knowledge Base</button>
-                    </form>
+                <div style="display:flex;flex-direction:column;gap:1.5rem;">
+                    <!-- Add Manual Entry -->
+                    <div class="card">
+                        <h3 style="margin-bottom:1rem;font-size:1rem;color:var(--text-primary)">Add New Entry</h3>
+                        <form onsubmit="handleUpsertKnowledge(event)" style="display:flex;flex-direction:column;gap:1rem">
+                            <div class="form-group">
+                                <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">Title</label>
+                                <input type="text" id="kb-title" required placeholder="e.g., Pricing Information" style="width:100%;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                            <div class="form-group">
+                                <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">Content</label>
+                                <textarea id="kb-content" required placeholder="Paste FAQ, policy, or instructions here..." style="width:100%;height:100px;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary);resize:vertical;"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">Save to Knowledge Base</button>
+                        </form>
+                    </div>
+
+                    <!-- Ingest Data -->
+                    <div class="card">
+                        <h3 style="margin-bottom:1rem;font-size:1rem;color:var(--text-primary)">Ingest Data</h3>
+                        
+                        <form onsubmit="handleIngestUrl(event)" style="margin-bottom:1.5rem;">
+                            <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">From URL</label>
+                            <div style="display:flex;gap:0.5rem;">
+                                <input type="url" id="kb-url" required placeholder="https://example.com" style="flex:1;padding:0.5rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-primary);color:var(--text-primary)">
+                                <button type="submit" class="btn btn-primary btn-sm">Scrape</button>
+                            </div>
+                        </form>
+
+                        <form onsubmit="handleUploadDoc(event)">
+                            <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem">From Document (PDF/Text)</label>
+                            <input type="file" id="kb-file" required accept=".pdf,.txt,.md" style="margin-bottom:0.5rem; width:100%; color:var(--text-primary);">
+                            <button type="submit" class="btn btn-primary btn-sm btn-full">Upload & Extract</button>
+                        </form>
+                    </div>
                 </div>
             </div>
         `;
@@ -1829,7 +1886,9 @@ async function handleUpsertKnowledge(e) {
     try {
         await API.post('/api/knowledge', {
             title: document.getElementById('kb-title').value,
-            content: document.getElementById('kb-content').value
+            content: document.getElementById('kb-content').value,
+            status: 'active',
+            source: 'Manual Entry'
         });
         toast('Knowledge entry saved', 'success');
         renderKnowledgeBase();
@@ -1839,6 +1898,66 @@ async function handleUpsertKnowledge(e) {
         btn.disabled = false;
     }
 }
+
+window.approveKnowledgeDraft = async function(id, title, content, source) {
+    try {
+        await API.post('/api/knowledge', { entry_id: id, title, content, status: 'active', source: source || 'Manual Entry' });
+        toast('Draft approved', 'success');
+        renderKnowledgeBase();
+    } catch (err) {
+        toast('Failed to approve', 'error');
+    }
+};
+
+window.handleIngestUrl = async function(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    const oldText = btn.textContent;
+    btn.textContent = 'Scraping...';
+    btn.disabled = true;
+
+    try {
+        await API.post('/api/knowledge/ingest-url', { url: document.getElementById('kb-url').value });
+        toast('Scraped and added to drafts!', 'success');
+        renderKnowledgeBase();
+    } catch(err) {
+        toast('Scraping failed', 'error');
+    } finally {
+        btn.textContent = oldText;
+        btn.disabled = false;
+    }
+};
+
+window.handleUploadDoc = async function(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    const oldText = btn.textContent;
+    const fileInput = document.getElementById('kb-file');
+    if (!fileInput.files.length) return;
+
+    btn.textContent = 'Extracting...';
+    btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch('/api/knowledge/upload-doc', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        if (!res.ok) throw new Error('Upload failed');
+        toast('Document extracted to drafts!', 'success');
+        renderKnowledgeBase();
+    } catch(err) {
+        toast('Extraction failed', 'error');
+    } finally {
+        btn.textContent = oldText;
+        btn.disabled = false;
+    }
+};
 
 async function deleteKnowledgeEntry(id) {
     if (!confirm('Are you sure you want to delete this knowledge entry?')) return;
