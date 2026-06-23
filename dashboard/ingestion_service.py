@@ -5,7 +5,15 @@ import pymupdf  # PyMuPDF
 from google import genai
 from pydantic import BaseModel, Field
 
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+def get_gemini_client():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"Failed to initialize Gemini client: {e}")
+        return None
 
 class KnowledgeFact(BaseModel):
     title: str = Field(description="A short, descriptive title for the fact (max 5 words).")
@@ -15,6 +23,11 @@ class ExtractedKnowledge(BaseModel):
     facts: list[KnowledgeFact]
 
 def _extract_with_gemini(text: str, context: str) -> list[dict]:
+    client = get_gemini_client()
+    if not client:
+        print("Gemini client is not available. Cannot extract knowledge.")
+        return []
+        
     prompt = f"""
     You are an AI Chief of Staff helping to build a Knowledge Base.
     Extract the most important, reusable facts, rules, or preferences from the provided text.
@@ -27,16 +40,16 @@ def _extract_with_gemini(text: str, context: str) -> list[dict]:
     {text}
     """
     
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-        config={
-            'response_mime_type': 'application/json',
-            'response_schema': list[KnowledgeFact],
-        },
-    )
-    
     try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': list[KnowledgeFact],
+            },
+        )
+        
         # Pydantic validation handles parsing
         facts = response.parsed
         return [{"title": f.title, "content": f.content} for f in facts]

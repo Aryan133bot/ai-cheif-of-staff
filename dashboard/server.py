@@ -864,11 +864,28 @@ def upsert_knowledge(body: KnowledgeBaseCreate, user: dict = Depends(get_current
     return entry
 
 from google import genai
-_dedup_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+def _get_dedup_client():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception:
+        return None
 
 def _is_duplicate_fact(user_id: int, title: str, content: str) -> bool:
+    client = _get_dedup_client()
+    if not client:
+        return False
+        
     query_text = f"Title: {title}\nContent: {content}"
-    similar_facts = vector_store.query_collection(user_id=user_id, query=query_text, n_results=3)
+    try:
+        similar_facts = vector_store.query_collection(user_id=user_id, query=query_text, n_results=3)
+    except Exception as e:
+        logger.error("Failed to query vector store: %s", e)
+        return False
+        
     if not similar_facts:
         return False
         
@@ -886,12 +903,12 @@ def _is_duplicate_fact(user_id: int, title: str, content: str) -> bool:
     {chr(10).join(similar_facts)}
     """
     try:
-        response = _dedup_client.models.generate_content(
+        response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
         )
         return "DUPLICATE" in response.text.upper()
-    except:
+    except Exception:
         return False
 
 @app.post("/api/knowledge/extract")
