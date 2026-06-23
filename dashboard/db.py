@@ -427,8 +427,8 @@ def create_task(db_path: str, data: dict, user_id: int) -> dict:
             ),
         )
         conn.commit()
-        # SQLite-version-safe: fetch by lastrowid
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        # Fetch by fingerprint to be safe across SQLite and PostgreSQL (PgCursor lacks lastrowid)
+        row = conn.execute("SELECT * FROM tasks WHERE fingerprint = ?", (fp,)).fetchone()
         return dict(row)
     finally:
         conn.close()
