@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
+import json
+
 class GoogleCalendarClient:
     def __init__(
         self,
         credentials_path: str | None = None,
-        token_path: str = "calendar_token.json",
+        token_json: str | None = None,
     ):
         script_dir = Path(__file__).resolve().parent
         env_creds = os.getenv("GMAIL_CREDENTIALS_PATH", "").strip() or "credentials.json"
@@ -35,20 +37,15 @@ class GoogleCalendarClient:
                 # Fallback to email processor folder
                 creds_path = (script_dir.parent / "email processor" / creds_path).resolve()
 
-        # Resolve token path
-        token_file = Path(token_path)
-        if not token_file.is_absolute():
-            token_file = (script_dir / token_file).resolve()
-
         self.credentials_path = creds_path
-        self.token_path = token_file
+        self.token_json = token_json
         self.service = self._build_service()
 
     def _build_service(self):
         creds = None
-        if self.token_path.exists():
+        if self.token_json:
             try:
-                creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+                creds = Credentials.from_authorized_user_info(json.loads(self.token_json), SCOPES)
             except Exception as e:
                 logger.error("Failed to load authorized calendar user: %s", e)
 
@@ -62,16 +59,7 @@ class GoogleCalendarClient:
 
         # Authenticate if valid credentials don't exist
         if not creds or not creds.valid:
-            if not self.credentials_path.exists():
-                raise FileNotFoundError(
-                    f"Google Developer Client credentials file not found: {self.credentials_path}. "
-                    "Make sure to place credentials.json in the email processor folder."
-                )
-            
-            # Start local authentication server
-            flow = InstalledAppFlow.from_client_secrets_file(str(self.credentials_path), SCOPES)
-            creds = flow.run_local_server(port=0)
-            self.token_path.write_text(creds.to_json(), encoding="utf-8")
+            raise ValueError("Invalid or missing Google Calendar token JSON. User must re-authenticate via OAuth flow.")
 
         return build("calendar", "v3", credentials=creds)
 

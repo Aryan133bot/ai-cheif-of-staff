@@ -72,9 +72,18 @@ EMAIL_POLL_INTERVAL = int(os.getenv("EMAIL_POLL_INTERVAL_MINUTES", "15"))
 from datetime import datetime, timezone, timedelta
 
 # Initialize Google Calendar Client lazily/gracefully
-def get_gcal_client(user_id: int = None):
-    # For now, Google Calendar is disabled in multi-tenant mode until fully rewritten.
-    return None
+def get_gcal_client(user_id: int):
+    if not user_id:
+        return None
+    try:
+        user = db.get_user_by_id(DB_PATH, user_id)
+        if not user or not user.get("gmail_token"):
+            return None
+        from google_calendar import GoogleCalendarClient
+        return GoogleCalendarClient(token_json=user["gmail_token"])
+    except Exception as e:
+        logger.warning("Google Calendar client unavailable for user %s: %s", user_id, e)
+        return None
 
 
 # ─── Email Service (lazy) ────────────────────────────────────────────────────
@@ -428,7 +437,7 @@ def create_event(body: CalendarEventCreate, user: dict = Depends(get_current_use
     data = body.model_dump(exclude_none=True)
 
     # Pre-push to Google Calendar if unconfigured fallback is active
-    gcal = get_gcal_client()
+    gcal = get_gcal_client(user["id"])
     if gcal:
         gcal_id = gcal.create_gcal_event(data)
         if gcal_id:
@@ -446,7 +455,7 @@ def update_event(event_id: int, body: CalendarEventUpdate, user: dict = Depends(
     if not current:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
 
-    gcal = get_gcal_client()
+    gcal = get_gcal_client(user["id"])
     if gcal:
         gcal_id = current.get("gcal_event_id")
         merged = {**dict(current), **data}
@@ -475,7 +484,7 @@ def delete_event(event_id: int, user: dict = Depends(get_current_user)):
     if not current:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
 
-    gcal = get_gcal_client()
+    gcal = get_gcal_client(user["id"])
     if gcal:
         gcal_id = current.get("gcal_event_id")
         if gcal_id:

@@ -20,11 +20,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
 
+import secrets
+
 # JWT configuration
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not JWT_SECRET_KEY:
-    logger.warning("JWT_SECRET_KEY environment variable not set. Using insecure fallback. Please set this in production!")
-    JWT_SECRET_KEY = "fallback-insecure-secret-key-change-in-prod-12345"
+    logger.warning("JWT_SECRET_KEY environment variable not set. Generating a random key for this session. Sessions will be invalidated on server restart. Please set JWT_SECRET_KEY in production!")
+    JWT_SECRET_KEY = secrets.token_urlsafe(32)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 

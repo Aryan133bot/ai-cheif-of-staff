@@ -1039,6 +1039,14 @@ def get_latest_processing_run(db_path: str, user_id: int = None) -> dict | None:
     finally:
         conn.close()
 
+def get_user_by_id(db_path: str, user_id: int) -> dict | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
 def get_all_users(db_path: str = DEFAULT_DB_PATH) -> list[dict]:
     conn = get_db(db_path)
     try:

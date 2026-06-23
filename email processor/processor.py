@@ -213,21 +213,25 @@ class EmailProcessor:
         return sorted(labels)
 
     def process_batch(self, emails: list[RawEmail]) -> list[dict]:
-        results: list[dict] = []
-        for email in emails:
+        import concurrent.futures
+        
+        def _process(email):
             try:
-                results.append(self.process_email(email))
+                return self.process_email(email)
             except Exception as exc:
                 logger.error("Failed to process email '%s': %s", email.email_id, exc)
-                results.append(
-                    {
-                        "email_id": email.email_id,
-                        "extracted_count": 0,
-                        "created": 0,
-                        "updated": 0,
-                        "error": str(exc),
-                    }
-                )
+                return {
+                    "email_id": email.email_id,
+                    "extracted_count": 0,
+                    "created": 0,
+                    "updated": 0,
+                    "error": str(exc),
+                }
+
+        results: list[dict] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            # map preserves order of input list
+            results = list(executor.map(_process, emails))
         return results
 
 
