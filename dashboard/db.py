@@ -43,7 +43,8 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 name       TEXT    NOT NULL,
                 email      TEXT    NOT NULL UNIQUE,
                 password   TEXT    NOT NULL,
-                gmail_token TEXT,
+                gmail_token_json TEXT,
+                outlook_token_json TEXT,
                 created_at TEXT    NOT NULL,
                 last_login TEXT,
                 auto_send_enabled BOOLEAN DEFAULT 0
@@ -160,6 +161,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             CREATE TABLE IF NOT EXISTS fetched_emails (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
                 email_id         TEXT    NOT NULL,
+                provider         TEXT    NOT NULL DEFAULT 'gmail',
                 subject          TEXT    NOT NULL DEFAULT '',
                 sender           TEXT    NOT NULL DEFAULT '',
                 body_preview     TEXT    DEFAULT '',
@@ -239,6 +241,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
 
         draft_columns = get_columns("reply_drafts")
         for col, ddl in (
+            ("email_provider", "ALTER TABLE reply_drafts ADD COLUMN email_provider TEXT NOT NULL DEFAULT 'gmail'"),
             ("gmail_message_id", "ALTER TABLE reply_drafts ADD COLUMN gmail_message_id TEXT"),
             ("gmail_thread_id", "ALTER TABLE reply_drafts ADD COLUMN gmail_thread_id TEXT"),
             ("sent_at", "ALTER TABLE reply_drafts ADD COLUMN sent_at TEXT"),
@@ -248,6 +251,14 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         ):
             if col not in draft_columns:
                 conn.execute(ddl)
+
+        user_columns = get_columns("users")
+        if "outlook_token_json" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN outlook_token_json TEXT")
+
+        fetched_columns = get_columns("fetched_emails")
+        if "provider" not in fetched_columns:
+            conn.execute("ALTER TABLE fetched_emails ADD COLUMN provider TEXT NOT NULL DEFAULT 'gmail'")
 
         kb_columns = get_columns("knowledge_base")
         if "status" not in kb_columns:
@@ -864,8 +875,8 @@ def create_reply_draft(db_path: str, data: dict, user_id: int) -> dict:
                 (task_id, original_subject, original_sender, original_body,
                  reply_intent, draft_text, edited_text, status,
                  model_used, confidence, gmail_message_id, gmail_thread_id,
-                 is_auto_sent, created_at, updated_at, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                 email_provider, is_auto_sent, created_at, updated_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             """,
             (
                 data.get("task_id"),
@@ -880,6 +891,7 @@ def create_reply_draft(db_path: str, data: dict, user_id: int) -> dict:
                 data.get("confidence", 0.0),
                 data.get("gmail_message_id"),
                 data.get("gmail_thread_id"),
+                data.get("email_provider", "gmail"),
                 data.get("is_auto_sent", False),
                 now,
                 now,
@@ -1072,10 +1084,27 @@ def get_user_gmail_token(db_path: str, user_id: int) -> str | None:
     finally:
         conn.close()
 
+def update_user_outlook_token(db_path: str, user_id: int, token_json: str) -> bool:
+    conn = get_db(db_path)
+    try:
+        conn.execute("UPDATE users SET outlook_token_json = ? WHERE id = ?", (token_json, user_id))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+def get_user_outlook_token(db_path: str, user_id: int) -> str | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT outlook_token_json FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row["outlook_token_json"] if row else None
+    finally:
+        conn.close()
+
 
 # ─── Fetched emails queries ──────────────────────────────────────────────────
 
-def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: int) -> None:
+def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: int, provider: str = "gmail") -> None:
     """Save all fetched emails to the database for display.
     
     On re-ingest, the category and processing_status are updated so that
@@ -1104,18 +1133,18 @@ def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: 
                 conn.execute(
                     """
                     UPDATE fetched_emails
-                    SET category = ?, processing_status = ?, run_id = ?
+                    SET category = ?, processing_status = ?, run_id = ?, provider = ?
                     WHERE email_id = ? AND user_id = ?
                     """,
-                    (category, processing_status, run_id, email_id, user_id),
+                    (category, processing_status, run_id, provider, email_id, user_id),
                 )
             else:
                 conn.execute(
                     """
                     INSERT INTO fetched_emails
                         (email_id, subject, sender, body_preview, received_at, thread_id,
-                         processing_status, category, run_id, created_at, user_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         processing_status, category, run_id, created_at, user_id, provider)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         email_id,
@@ -1129,6 +1158,7 @@ def save_fetched_emails(db_path: str, emails: list[dict], run_id: int, user_id: 
                         run_id,
                         now,
                         user_id,
+                        provider,
                     ),
                 )
         conn.commit()
@@ -1145,6 +1175,7 @@ def get_fetched_emails(
     status: str | None = None,
     category: str | None = None,
     tag: str | None = None,
+    provider: str | None = None,
 ) -> list[dict]:
     """Get fetched emails for a user with pagination support."""
     conn = get_db(db_path)
@@ -1160,6 +1191,9 @@ def get_fetched_emails(
         if tag:
             where += " AND e.email_id IN (SELECT source_email_id FROM tasks WHERE deadline_type = ? AND user_id = ?)"
             params.extend([tag, user_id])
+        if provider and provider != "all":
+            where += " AND e.provider = ?"
+            params.append(provider)
             
         params.extend([limit, offset])
         rows = conn.execute(

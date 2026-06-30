@@ -68,6 +68,7 @@ const API = {
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
 let _isSubmitting = false;
+let _activeProvider = 'all';
 function lockSubmit() {
     if (_isSubmitting) return false;
     _isSubmitting = true;
@@ -209,9 +210,10 @@ async function renderDashboard() {
         </div>`;
 
     try {
-        const [stats, priorities] = await Promise.all([
+        const [stats, priorities, briefingRes] = await Promise.all([
             API.get('/api/stats'),
             API.get('/api/tasks/priorities?limit=10'),
+            API.get('/api/briefing').catch(() => ({ briefing: '' }))
         ]);
         Store.setTasks([...priorities]);
 
@@ -249,7 +251,29 @@ async function renderDashboard() {
             ? miscEmails.map(renderEmailPreviewRow).join('')
             : `<div style="padding:1.5rem 0; text-align:center; color:var(--text-tertiary); font-size:0.85rem;">No non-work emails yet</div>`;
 
+        let briefingHtml = '';
+        if (briefingRes && briefingRes.briefing) {
+            briefingHtml = `
+            <div class="briefing-card">
+                <div class="briefing-header">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="url(#gradient-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        <defs>
+                            <linearGradient id="gradient-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="var(--primary)" />
+                                <stop offset="100%" stop-color="var(--accent)" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <h3 class="briefing-title">AI Executive Briefing</h3>
+                </div>
+                <div class="briefing-text">
+                    ${marked.parse(briefingRes.briefing)}
+                </div>
+            </div>`;
+        }
+
         body.innerHTML = `
+            ${briefingHtml}
             <!-- Summary Cards -->
             <div class="stats-grid">
                 <div class="stat-card">
@@ -611,7 +635,7 @@ async function _loadEmailPage(category, limit, offset, replace, tag = null) {
 
     try {
         const tagParam = tag ? `&tag=${encodeURIComponent(tag)}` : '';
-        const emails = await API.get(`/api/emails/fetched?limit=${limit + 1}&offset=${offset}&category=${category}${tagParam}`);
+        const emails = await API.get(`/api/emails/fetched?limit=${limit + 1}&offset=${offset}&category=${category}${tagParam}&provider=${_activeProvider}`);
         const hasMore = emails.length > limit;
         const page = hasMore ? emails.slice(0, limit) : emails;
 
@@ -658,7 +682,7 @@ async function _loadEmailPage(category, limit, offset, replace, tag = null) {
                     <span class="pill" style="font-size:0.75rem; padding:0.15rem 0.5rem; border:1px solid ${getStatusColor(e.processing_status)}; color:${getStatusColor(e.processing_status)}; background:transparent; flex-shrink:0; margin-left:0.5rem;">${e.processing_status}</span>
                 </div>
                 <div style="font-size:0.85rem; color:var(--text-secondary);">
-                    <span style="color:var(--text-primary);">${escHtml(e.sender || '')}</span> • ${formatDate(e.received_at)}
+                    <span style="color:var(--text-primary);">${escHtml(e.sender || '')}</span> • ${formatDate(e.received_at)} <span style="font-size:0.7rem; background:var(--bg-primary); padding:0.1rem 0.4rem; border-radius:0.25rem; margin-left:0.5rem; border: 1px solid var(--border-color); text-transform: capitalize;">${e.provider || 'gmail'}</span>
                 </div>
                 <div style="font-size:0.85rem; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
                     ${escHtml(e.body_preview || '')}
@@ -672,7 +696,19 @@ async function _loadEmailPage(category, limit, offset, replace, tag = null) {
                </div>`
             : `<div style="text-align:center; padding:0.5rem; color:var(--text-tertiary); font-size:0.8rem;">All emails loaded (${allEmails.length} total)</div>`;
 
-        pageBody.innerHTML = `<div class="inbox-list" style="margin-top:1rem;">${rows}</div>${loadMoreBtn}`;
+        
+        const toggleHtml = `
+            <div style="display:flex; justify-content:flex-end; margin-bottom:1rem; align-items:center;">
+                <span style="font-size:0.85rem; color:var(--text-secondary); margin-right:0.5rem;">Filter by Provider:</span>
+                <div class="toggle-group" style="display:flex; background:var(--bg-secondary); border-radius:0.5rem; padding:0.25rem;">
+                    <button class="btn btn-sm ${ _activeProvider === 'all' ? 'btn-primary' : 'btn-ghost'}" onclick="setProviderFilter('all', '${category}', ${tag ? `'${tag}'` : 'null'})">All</button>
+                    <button class="btn btn-sm ${ _activeProvider === 'gmail' ? 'btn-primary' : 'btn-ghost'}" onclick="setProviderFilter('gmail', '${category}', ${tag ? `'${tag}'` : 'null'})">Gmail</button>
+                    <button class="btn btn-sm ${ _activeProvider === 'outlook' ? 'btn-primary' : 'btn-ghost'}" onclick="setProviderFilter('outlook', '${category}', ${tag ? `'${tag}'` : 'null'})">Outlook</button>
+                </div>
+            </div>
+        `;
+        pageBody.innerHTML = toggleHtml + `<div class="inbox-list" style="margin-top:1rem;">${rows}</div>${loadMoreBtn}`;
+
 
     } catch (err) {
         pageBody.innerHTML = `<div class="error" style="color:var(--critical); padding:2rem; text-align:center;">Failed to load emails: ${escHtml(err.message)}</div>`;
@@ -1989,6 +2025,9 @@ async function renderSettings() {
         const gmailProvider = (emailStatus.providers || []).find(p => p.provider === 'gmail');
         const isGmailConfigured = gmailProvider && gmailProvider.configured;
         const isGmailConnected = gmailProvider && gmailProvider.authenticated;
+        const outlookProvider = (emailStatus.providers || []).find(p => p.provider === 'outlook');
+        const isOutlookConfigured = outlookProvider && outlookProvider.configured;
+        const isOutlookConnected = outlookProvider && outlookProvider.authenticated;
         const gmailNeedsReconnect = isGmailConnected && gmailProvider && gmailProvider.can_send === false;
 
         const providers = (emailStatus.providers || []).map(p => `
@@ -2008,6 +2047,13 @@ async function renderSettings() {
             : isGmailConfigured
                 ? '<button class="btn btn-primary btn-sm" onclick="connectGmail()">Connect Gmail</button>'
                 : '<span style="font-size:0.78rem;color:var(--text-tertiary)">Place credentials.json in the email processor folder to enable Gmail</span>';
+
+        
+        const outlookBtn = isOutlookConnected
+            ? `<button class="btn btn-sm" style="border:1px solid rgba(239,68,68,0.3);color:var(--critical);background:transparent" onclick="disconnectOutlook()">Disconnect Outlook</button>`
+            : isOutlookConfigured
+                ? '<button class="btn btn-primary btn-sm" onclick="connectOutlook()">Connect Outlook</button>'
+                : '<span style="font-size:0.78rem;color:var(--text-tertiary)">Configure OUTLOOK_CLIENT_ID on server to enable Outlook</span>';
 
         const lastRun = emailStatus.last_run;
         const lastRunInfo = lastRun
@@ -2049,6 +2095,7 @@ async function renderSettings() {
                     ${providers}
                     <div style="margin-top:1rem;display:flex;gap:0.75rem;align-items:center">
                         ${gmailBtn}
+                        ${outlookBtn}
                         ${isGmailConnected ? '<button class="btn btn-primary btn-sm" onclick="processEmails()" id="btn-settings-process">Process Now</button>' : ''}
                     </div>
                 </div>
@@ -2360,4 +2407,35 @@ async function saveGeneratedReplyEmail() {
     } finally {
         unlockSubmit();
     }
+}
+
+
+window.setProviderFilter = function(provider, category, tag) {
+    _activeProvider = provider;
+    _loadEmailPage(category, 50, 0, true, tag);
+};
+
+
+async function connectOutlook() {
+    toast('Generating Microsoft sign-in link...', 'info');
+    try {
+        const result = await API.get('/api/outlook/auth-url');
+        if (result.auth_url) {
+            window.location.href = result.auth_url;
+        } else {
+            toast(result.message || 'Outlook is already connected', 'success');
+            renderSettings();
+        }
+    } catch (err) {
+        toast(err.message || 'Outlook connection failed', 'error');
+    }
+}
+
+async function disconnectOutlook() {
+    if (!confirm('Disconnect Outlook? Email auto-polling will stop until you reconnect.')) return;
+    try {
+        const result = await API.post('/api/outlook/disconnect');
+        toast(result.message || 'Outlook disconnected', 'success');
+        renderSettings();
+    } catch (err) { toast(err.message, 'error'); }
 }

@@ -33,6 +33,7 @@ import vector_store
 import ingestion_service
 from reply_generator import generate_reply_text
 from reply_sender import mark_draft_send_failed, mark_draft_sent, send_approved_reply
+from briefing_generator import generate_daily_briefing
 from auth import (
     has_any_account,
     create_account,
@@ -92,6 +93,7 @@ def get_email_service(user_id: int):
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from email_providers.gmail import GmailProvider
+        from email_providers.outlook import OutlookProvider
         from email_providers.registry import ProviderRegistry
         from email_service import EmailService
 
@@ -100,6 +102,12 @@ def get_email_service(user_id: int):
         logger.info("Gmail provider configured=%s, authenticated=%s, creds_path=%s", 
                      gmail.is_configured(), gmail.is_authenticated(), gmail._credentials_path)
         registry.register(gmail)
+        
+        outlook = OutlookProvider(user_id=user_id)
+        logger.info("Outlook provider configured=%s, authenticated=%s", 
+                     outlook.is_configured(), outlook.is_authenticated())
+        registry.register(outlook)
+        
         return EmailService(DB_PATH, registry, user_id=user_id)
     except Exception as e:
         logger.warning("Email processing service unavailable: %s", e, exc_info=True)
@@ -260,10 +268,10 @@ class ApproveReplyBody(BaseModel):
 @app.get("/api/auth/status")
 def auth_status():
     """Check if any account exists — tells frontend to show setup or login."""
-    return {"has_account": auth.has_any_account(DB_PATH)}
+    return {"has_account": has_any_account(DB_PATH)}
 
 @app.get("/api/debug/env")
-def debug_env():
+def debug_env(user: dict = Depends(get_current_user)):
     import traceback
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     models = []
@@ -419,6 +427,24 @@ def update_status(task_id: int, body: StatusUpdate, user: dict = Depends(get_cur
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     return {"ok": True, "task_id": task_id, "status": body.status}
 
+
+@app.get("/api/briefing")
+def get_daily_briefing(user: dict = Depends(get_current_user)):
+    user_id = user["id"]
+    with db.get_db(DB_PATH) as conn:
+        emails = conn.execute(
+            "SELECT * FROM fetched_emails WHERE user_id = ? AND category = 'work' ORDER BY received_at DESC LIMIT 5",
+            (user_id,)
+        ).fetchall()
+        tasks = conn.execute(
+            "SELECT * FROM tasks WHERE user_id = ? AND status = 'pending' AND priority = 'urgent' LIMIT 5",
+            (user_id,)
+        ).fetchall()
+        
+    email_dicts = [dict(e) for e in emails]
+    task_dicts = [dict(t) for t in tasks]
+    briefing_text = generate_daily_briefing(email_dicts, task_dicts)
+    return {"briefing": briefing_text}
 
 @app.get("/api/stats")
 def dashboard_stats(user: dict = Depends(get_current_user)):
@@ -632,6 +658,7 @@ def get_fetched_emails_list(
     status: str | None = None,
     category: str | None = None,
     tag: str | None = None,
+    provider: str | None = None,
     user: dict = Depends(get_current_user),
 ):
     """Get fetched emails for the current user with pagination support."""
@@ -643,6 +670,7 @@ def get_fetched_emails_list(
         status=status,
         category=category,
         tag=tag,
+        provider=provider,
     )
 
 @app.get("/api/emails/tags")
@@ -758,22 +786,113 @@ def disconnect_gmail(user: dict = Depends(get_current_user)):
     return {"ok": True, "message": "Gmail disconnected."}
 
 
+@app.get("/api/outlook/auth-url")
+def get_outlook_auth_url(user: dict = Depends(get_current_user)):
+    """Generate Outlook OAuth URL using requests-oauthlib."""
+    client_id = os.getenv("OUTLOOK_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Outlook is not configured on the server.")
+        
+    try:
+        from requests_oauthlib import OAuth2Session
+        import uuid
+        
+        state = str(uuid.uuid4())
+        db.save_oauth_state(DB_PATH, state, user["id"])
+        
+        redirect_uri = str(request.base_url).rstrip("/") + "/api/outlook/callback"
+        
+        scopes = ["User.Read", "Mail.Read", "Mail.Send", "Calendars.ReadWrite", "offline_access"]
+        
+        msgraph = OAuth2Session(client_id, scope=scopes, redirect_uri=redirect_uri)
+        authorization_url, _ = msgraph.authorization_url(
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            state=state,
+            prompt="consent"
+        )
+        return {"ok": True, "auth_url": authorization_url}
+    except Exception as e:
+        logger.error("Failed to generate Outlook auth url: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to start Outlook auth: {str(e)}")
+
+
+@app.get("/api/outlook/callback")
+def outlook_callback(request: Request, state: str = None, code: str = None, error: str = None):
+    """Handle the OAuth callback from Microsoft."""
+    if error:
+        return RedirectResponse(url=f"/#settings?error={error}")
+    if not code or not state:
+        return RedirectResponse(url="/#settings?error=no_code_provided")
+
+    import urllib.parse
+    try:
+        user_id = db.get_user_for_oauth_state(DB_PATH, state)
+        if not user_id:
+            logger.error("OAuth flow state not found or expired")
+            return RedirectResponse(url="/#settings?error=session_expired")
+            
+        client_id = os.getenv("OUTLOOK_CLIENT_ID")
+        client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            return RedirectResponse(url="/#settings?error=missing_credentials")
+            
+        from requests_oauthlib import OAuth2Session
+        redirect_uri = str(request.base_url).rstrip("/") + "/api/outlook/callback"
+        
+        msgraph = OAuth2Session(client_id, state=state, redirect_uri=redirect_uri)
+        token = msgraph.fetch_token(
+            "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            client_secret=client_secret,
+            authorization_response=str(request.url),
+        )
+        
+        import json
+        from datetime import datetime, timezone
+        token["expires_at"] = datetime.now(timezone.utc).timestamp() + token.get("expires_in", 3600)
+        
+        db.update_user_outlook_token(DB_PATH, user_id, json.dumps(token))
+        
+        logger.info("Outlook connected successfully for user %d", user_id)
+        return RedirectResponse(url="/#settings")
+    except Exception as e:
+        logger.error("Outlook OAuth callback failed: %s", e)
+        return RedirectResponse(url=f"/#settings?error={urllib.parse.quote(str(e))}")
+
+
+@app.post("/api/outlook/disconnect")
+def disconnect_outlook(user: dict = Depends(get_current_user)):
+    """Remove Outlook token to disconnect the account."""
+    db.update_user_outlook_token(DB_PATH, user["id"], None)
+    logger.info("Outlook disconnected for user %d", user["id"])
+    return {"ok": True, "message": "Outlook disconnected."}
+
+
 # ─── Reply engine endpoints ─────────────────────────────────────────────────
 
-def _resolve_draft_gmail_ids(body: ReplyDraftRequest, user_id: int) -> tuple[str | None, str | None]:
-    if body.gmail_message_id:
-        return body.gmail_message_id, body.gmail_thread_id
+def _resolve_draft_ids(body: ReplyDraftRequest, user_id: int) -> tuple[str | None, str | None, str]:
+    message_id = body.gmail_message_id
     if body.task_id:
         task = db.get_task_by_id(DB_PATH, body.task_id, user_id=user_id)
         if task:
-            return task.get("source_email_id"), body.gmail_thread_id
-    return None, body.gmail_thread_id
+            message_id = task.get("source_email_id")
+    
+    email_provider = "gmail"
+    if message_id:
+        with db.get_db(DB_PATH) as conn:
+            email_row = conn.execute(
+                "SELECT provider FROM fetched_emails WHERE email_id = ? AND user_id = ?",
+                (message_id, user_id)
+            ).fetchone()
+            if email_row:
+                email_provider = email_row["provider"]
+
+    return message_id, body.gmail_thread_id, email_provider
 
 
 @app.post("/api/replies/draft", status_code=201)
 def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_user)):
     """Generate an AI reply draft and store it for approval."""
-    gmail_message_id, gmail_thread_id = _resolve_draft_gmail_ids(body, user["id"])
+    gmail_message_id, gmail_thread_id, email_provider = _resolve_draft_ids(body, user["id"])
     import re
     match = re.search(r'<(.+?)>', body.original_sender)
     raw_email = match.group(1) if match else body.original_sender
@@ -816,6 +935,7 @@ def generate_reply(body: ReplyDraftRequest, user: dict = Depends(get_current_use
         "confidence": confidence,
         "gmail_message_id": gmail_message_id,
         "gmail_thread_id": gmail_thread_id,
+        "email_provider": email_provider,
     }
     return db.create_reply_draft(db_path=DB_PATH, data=data, user_id=user["id"])
 
@@ -975,7 +1095,7 @@ def approve_reply(
     body: ApproveReplyBody = Body(default_factory=ApproveReplyBody),
     user: dict = Depends(get_current_user),
 ):
-    """Approve a draft and send it via Gmail."""
+    """Approve a draft and send it via the correct email provider."""
     db.reset_stale_sending_drafts(DB_PATH)
 
     existing = db.get_reply_draft(DB_PATH, draft_id, user_id=user["id"])
@@ -1003,8 +1123,8 @@ def approve_reply(
             draft = updated
 
     try:
-        gmail_response = send_approved_reply(DB_PATH, draft, user_id=user["id"])
-        result = mark_draft_sent(DB_PATH, draft_id, gmail_response, user_id=user["id"])
+        provider_response = send_approved_reply(DB_PATH, draft, user_id=user["id"])
+        result = mark_draft_sent(DB_PATH, draft_id, provider_response, user_id=user["id"])
         if result is None:
             raise RuntimeError("Failed to update draft status after send.")
     except (PermissionError, ValueError) as e:
@@ -1017,7 +1137,7 @@ def approve_reply(
         logger.error("Failed to send reply draft %s: %s", draft_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to send reply: {e}") from e
 
-    return {"ok": True, "draft": result, "message": "Reply sent via Gmail."}
+    return {"ok": True, "draft": result, "message": "Reply sent successfully."}
 
 
 @app.delete("/api/replies/{draft_id}")

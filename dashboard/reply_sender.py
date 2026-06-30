@@ -14,7 +14,7 @@ if str(_email_proc_dir) not in sys.path:
     sys.path.insert(0, str(_email_proc_dir))
 
 
-def _resolve_gmail_ids(db_path: str, draft: dict, user_id: int) -> tuple[str | None, str | None]:
+def _resolve_email_ids(db_path: str, draft: dict, user_id: int) -> tuple[str | None, str | None]:
     message_id = draft.get("gmail_message_id")
     thread_id = draft.get("gmail_thread_id")
     if message_id:
@@ -31,38 +31,50 @@ def _resolve_gmail_ids(db_path: str, draft: dict, user_id: int) -> tuple[str | N
 
 
 def send_approved_reply(db_path: str, draft: dict, user_id: int) -> dict:
-    """Send a reply draft via Gmail. Returns the Gmail API send response."""
+    """Send a reply draft via the appropriate email provider. Returns the API send response."""
     from email_providers.gmail import GmailProvider
-    import json
+    from email_providers.outlook import OutlookProvider
     
-    token_json = db.get_user_gmail_token(db_path, user_id)
-    if not token_json:
-        raise PermissionError(
-            "Gmail send permission is missing. Disconnect and reconnect Gmail in Settings "
-            "to authorize sending replies."
-        )
-
-    provider = GmailProvider(user_id=user_id)
-    if not provider.is_authenticated():
-        raise PermissionError("Gmail is not connected. Connect Gmail in Settings first.")
+    email_provider = draft.get("email_provider", "gmail")
+    
+    if email_provider == "outlook":
+        token_json = db.get_user_outlook_token(db_path, user_id)
+        if not token_json:
+            raise PermissionError(
+                "Outlook send permission is missing. Disconnect and reconnect Outlook in Settings "
+                "to authorize sending replies."
+            )
+        provider = OutlookProvider(user_id=user_id)
+        if not provider.is_authenticated():
+            raise PermissionError("Outlook is not connected. Connect Outlook in Settings first.")
+    else:
+        token_json = db.get_user_gmail_token(db_path, user_id)
+        if not token_json:
+            raise PermissionError(
+                "Gmail send permission is missing. Disconnect and reconnect Gmail in Settings "
+                "to authorize sending replies."
+            )
+        provider = GmailProvider(user_id=user_id)
+        if not provider.is_authenticated():
+            raise PermissionError("Gmail is not connected. Connect Gmail in Settings first.")
 
     body = (draft.get("edited_text") or draft.get("draft_text") or "").strip()
     if not body:
         raise ValueError("Reply body is empty.")
 
-    gmail_message_id, gmail_thread_id = _resolve_gmail_ids(db_path, draft, user_id)
-    if not gmail_message_id:
+    message_id, thread_id = _resolve_email_ids(db_path, draft, user_id)
+    if not message_id:
         raise ValueError(
-            "This draft is not linked to a Gmail message. Re-process the email or "
-            "create a new draft from a task that came from Gmail."
+            "This draft is not linked to a message. Re-process the email or "
+            "create a new draft from a task that came from a valid email."
         )
 
     return provider.send_reply(
         to=draft["original_sender"],
         subject=draft["original_subject"],
         body=body,
-        thread_id=gmail_thread_id,
-        in_reply_to_message_id=gmail_message_id,
+        thread_id=thread_id,
+        in_reply_to_message_id=message_id,
     )
 
 
