@@ -20,6 +20,13 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Query, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware

@@ -11,6 +11,7 @@ google-api-python-client
 google-genai
 psycopg2-binary
 chromadb
+pysqlite3-binary
 sentence-transformers
 beautifulsoup4
 requests
