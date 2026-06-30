@@ -34,7 +34,7 @@ def generate_daily_briefing(emails: list[dict], tasks: list[dict]) -> str:
             {
                 "title": t.get("title"),
                 "priority": t.get("priority"),
-                "due_date": t.get("due_date"),
+                "due_date": t.get("deadline_date"),
             } for t in tasks[:5]
         ]
     }

@@ -1,6 +1,5 @@
-import traceback
 from fastapi.responses import JSONResponse
-from fastapi import Request
+
 """
 AI Chief of Staff — Dashboard API Server
 
@@ -343,7 +342,7 @@ class AutoSendBody(BaseModel):
 @app.post("/api/settings/auto-send")
 def set_auto_send(body: AutoSendBody, user: dict = Depends(get_current_user)):
     """Update auto_send_enabled for the current user."""
-    conn = get_db(DB_PATH)
+    conn = db.get_db(DB_PATH)
     try:
         conn.execute("UPDATE users SET auto_send_enabled = ? WHERE id = ?", (body.enabled, user["id"]))
         conn.commit()
@@ -437,7 +436,7 @@ def get_daily_briefing(user: dict = Depends(get_current_user)):
             (user_id,)
         ).fetchall()
         tasks = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? AND status = 'pending' AND urgency = 'urgent' LIMIT 5",
+            "SELECT * FROM tasks WHERE user_id = ? AND status IN ('created', 'reviewed', 'in_progress', 'blocked') AND urgency IN ('critical', 'high') LIMIT 5",
             (user_id,)
         ).fetchall()
         
@@ -532,7 +531,7 @@ def sync_tasks(user: dict = Depends(get_current_user)):
 @app.post("/api/calendar/sync-gcal")
 def sync_google_calendar(user: dict = Depends(get_current_user)):
     """Perform a full two-way synchronization with Google Calendar."""
-    gcal = get_gcal_client()
+    gcal = get_gcal_client(user["id"])
     if not gcal:
         raise HTTPException(
             status_code=400,

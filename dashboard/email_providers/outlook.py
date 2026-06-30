@@ -157,11 +157,15 @@ class OutlookProvider(EmailProvider):
             
         return fetched
 
-    def send_reply(self, message_id: str, body: str) -> None:
+    def send_reply(self, to: str, subject: str, body: str, *, thread_id: str = None, in_reply_to_message_id: str = None) -> dict:
         """Send a reply to an existing email via Graph API."""
         access_token = self._get_access_token()
         if not access_token:
             raise RuntimeError("Outlook is not authenticated.")
+            
+        message_id = in_reply_to_message_id
+        if not message_id:
+            raise ValueError("Outlook requires in_reply_to_message_id to send a reply.")
             
         url = f"{GRAPH_API_BASE}/me/messages/{message_id}/reply"
         headers = {
@@ -178,3 +182,6 @@ class OutlookProvider(EmailProvider):
         }
         res = requests.post(url, headers=headers, json=payload, timeout=10)
         res.raise_for_status()
+        
+        # Outlook /reply returns 202 Accepted with no body, so we mock a response dict
+        return {"id": message_id, "status": "sent"}

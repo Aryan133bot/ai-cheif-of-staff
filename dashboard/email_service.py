@@ -168,6 +168,7 @@ class EmailService:
                 errors=errors,
                 error_details=json.dumps(error_msgs) if error_msgs else None,
                 status="completed",
+                user_id=self.user_id,
             )
 
             drafts_created = 0

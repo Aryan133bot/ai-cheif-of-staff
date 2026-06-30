@@ -43,11 +43,11 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 name       TEXT    NOT NULL,
                 email      TEXT    NOT NULL UNIQUE,
                 password   TEXT    NOT NULL,
-                gmail_token_json TEXT,
+                gmail_token TEXT,
                 outlook_token_json TEXT,
                 created_at TEXT    NOT NULL,
                 last_login TEXT,
-                auto_send_enabled BOOLEAN DEFAULT 0
+                auto_send_enabled INTEGER DEFAULT 0
             )
             """
         )
@@ -276,7 +276,7 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
             conn.execute("ALTER TABLE users ADD COLUMN gmail_token TEXT")
 
         if "auto_send_enabled" not in get_columns("users"):
-            conn.execute("ALTER TABLE users ADD COLUMN auto_send_enabled BOOLEAN DEFAULT FALSE")
+            conn.execute("ALTER TABLE users ADD COLUMN auto_send_enabled INTEGER DEFAULT 0")
 
         conn.commit()
         logger.info("Database schema initialised at %s", db_path)
@@ -689,7 +689,7 @@ def sync_tasks_to_calendar(db_path: str = DEFAULT_DB_PATH, user_id: int = None) 
                 "low": "#64748b",
             }
             
-            event_user_id = user_id if user_id else task.get("user_id")
+            event_user_id = user_id if user_id else task["user_id"]
 
             conn.execute(
                 """

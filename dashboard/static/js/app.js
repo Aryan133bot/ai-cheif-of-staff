@@ -196,7 +196,7 @@ function navigate() {
 // ─── Dashboard View ─────────────────────────────────────────────────────────
 
 async function renderDashboard() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     main.innerHTML = `
         <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
             <div>
@@ -267,7 +267,7 @@ async function renderDashboard() {
                     <h3 class="briefing-title">AI Executive Briefing</h3>
                 </div>
                 <div class="briefing-text">
-                    ${marked.parse(briefingRes.briefing)}
+                    ${typeof marked !== 'undefined' ? marked.parse(briefingRes.briefing) : escHtml(briefingRes.briefing)}
                 </div>
             </div>`;
         }
@@ -362,7 +362,9 @@ async function renderDashboard() {
         const badge = document.getElementById('nav-tasks-badge');
         if (stats.active > 0) {
             badge.textContent = stats.active;
-            badge.style.display = '';
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
         }
 
         // Smart email button: only show Process if email is set up
@@ -561,7 +563,7 @@ async function renderNonWorkMails() {
 const _emailStore = {};
 
 async function renderEmailList(category, title, subtitle) {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     _emailStore[category] = _emailStore[category] || { emails: [], offset: 0, hasMore: false, activeTag: null };
     const PAGE_SIZE = 50;
 
@@ -619,7 +621,7 @@ window._filterEmailList = async function(category, tag) {
         });
     }
     
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     const pageBody = main.querySelector('.page-body');
     if (pageBody) {
         pageBody.innerHTML = `<div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div>`;
@@ -629,7 +631,7 @@ window._filterEmailList = async function(category, tag) {
 };
 
 async function _loadEmailPage(category, limit, offset, replace, tag = null) {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     const pageBody = main.querySelector('.page-body');
     if (!pageBody) return;
 
@@ -676,7 +678,7 @@ async function _loadEmailPage(category, limit, offset, replace, tag = null) {
 
         const rows = allEmails.map(e => `
             <div class="email-row" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:0.5rem; padding:1rem; margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.5rem; cursor:pointer;"
-                 onclick="_openEmailModal('${category}', ${e.id})">
+                 onclick="_openEmailModal('${category}', '${e.id}')">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                     <div style="font-weight:600; color:var(--text-primary); font-size:1rem; margin-bottom:0.25rem;">${escHtml(e.subject || '(no subject)')}</div>
                     <span class="pill" style="font-size:0.75rem; padding:0.15rem 0.5rem; border:1px solid ${getStatusColor(e.processing_status)}; color:${getStatusColor(e.processing_status)}; background:transparent; flex-shrink:0; margin-left:0.5rem;">${e.processing_status}</span>
@@ -719,7 +721,7 @@ async function _loadEmailPage(category, limit, offset, replace, tag = null) {
 function _openEmailModal(category, id) {
     const store = _emailStore[category];
     if (!store) return;
-    const email = store.emails.find(e => e.id === id);
+    const email = store.emails.find(e => String(e.id) === String(id));
     if (!email) return;
     viewEmailDetails(email);
 }
@@ -751,15 +753,15 @@ function viewEmailDetails(email) {
         email.subject || '(no subject)', 
         bodyHtml, 
         `<button class="btn btn-ghost" onclick="closeModal()">Close</button>
-         <button class="btn" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary)" onclick="extractToKB('${email.category || 'miscellaneous'}', ${email.id})">Extract to KB</button>
-         <button class="btn btn-primary" onclick="closeModal(); setTimeout(() => openReplyModalForEmail('${email.category || 'miscellaneous'}', ${email.id}), 300);">Draft Reply</button>`
+         <button class="btn" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary)" onclick="extractToKB('${email.category || 'miscellaneous'}', '${email.id}')">Extract to KB</button>
+         <button class="btn btn-primary" onclick="closeModal(); setTimeout(() => openReplyModalForEmail('${email.category || 'miscellaneous'}', '${email.id}'), 300);">Draft Reply</button>`
     );
 }
 
 async function extractToKB(category, id) {
     const store = _emailStore[category];
     if (!store) return;
-    const email = store.emails.find(e => e.id === id);
+    const email = store.emails.find(e => String(e.id) === String(id));
     if (!email) return;
     
     closeModal();
@@ -776,7 +778,7 @@ async function extractToKB(category, id) {
 // ─── Commitments View ─────────────────────────────────────────────────────────
 
 async function renderCommitments() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     
     // Fetch available tags/categories first
     let categories = [];
@@ -973,7 +975,7 @@ async function handleNewCommitment(e) {
 let calState = { view: 'month', date: new Date() };
 
 async function renderCalendar() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     main.innerHTML = `
         <div class="page-header">
             <h2>Calendar</h2>
@@ -1404,7 +1406,7 @@ async function syncGoogleCalendar() {
 // ─── Reply Engine View ──────────────────────────────────────────────────────
 
 async function renderReplies() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     main.innerHTML = `
         <div class="page-header">
             <h2>Reply Engine</h2>
@@ -1669,8 +1671,8 @@ document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
     if (e.key === '1') { location.hash = '#dashboard'; }
     else if (e.key === '2') { location.hash = '#calendar'; }
-    else if (e.key === '3') { location.hash = '#replies'; }
-    else if (e.key === '4') { location.hash = '#tasks'; }
+    else if (e.key === '3') { location.hash = '#work-mails'; }
+    else if (e.key === '4') { location.hash = '#commitments'; }
     else if (e.key === '5') { location.hash = '#settings'; }
     else if (e.key === 'n' || e.key === 'N') {
         if (location.hash === '#calendar') openEventModal();
@@ -1681,7 +1683,7 @@ document.addEventListener('keydown', e => {
 // ─── Relationships View ──────────────────────────────────────────────────────
 
 async function renderRelationships() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     main.innerHTML = `
         <div class="page-header">
             <h2>Contact Relationships</h2>
@@ -1808,20 +1810,21 @@ async function handleUpsertRelationship(e) {
 }
 
 async function deleteRelationship(id) {
-    if (!confirm('Are you sure you want to delete this relationship?')) return;
-    try {
-        await API.delete('/api/relationships/' + id);
-        toast('Deleted successfully', 'success');
-        renderRelationships();
-    } catch (err) {
-        toast('Failed to delete', 'error');
+    if (confirm('Delete this relationship?')) {
+        try {
+            await API.del('/api/relationships/' + id);
+            toast('Deleted successfully', 'success');
+            renderRelationships();
+        } catch (err) {
+            toast('Failed to delete', 'error');
+        }
     }
 }
 
 // ─── Knowledge Base View ────────────────────────────────────────────────────
 
 async function renderKnowledgeBase() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     main.innerHTML = `
         <div class="page-header">
             <h2>Knowledge Base</h2>
@@ -1842,7 +1845,7 @@ async function renderKnowledgeBase() {
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
                     <strong style="font-size:1rem">${escHtml(k.title)}</strong>
                     <div>
-                        ${isDraft ? `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem;" onclick="approveKnowledgeDraft(${k.id}, '${escHtml(k.title.replace(/'/g, "\\'"))}', '${escHtml(k.content.replace(/'/g, "\\'"))}', '${escHtml((k.source || '').replace(/'/g, "\\'"))}')">Approve</button>` : ''}
+                        ${isDraft ? `<button class="btn btn-sm btn-primary" style="margin-right:0.5rem;" data-title="${escHtml(k.title)}" data-content="${escHtml(k.content)}" data-source="${escHtml(k.source || '')}" onclick="approveKnowledgeDraft(this, ${k.id})">Approve</button>` : ''}
                         <button class="btn btn-sm" style="color:var(--critical);border-color:transparent;background:transparent" onclick="deleteKnowledgeEntry(${k.id})">${isDraft ? 'Reject' : 'Delete'}</button>
                     </div>
                 </div>
@@ -1935,9 +1938,18 @@ async function handleUpsertKnowledge(e) {
     }
 }
 
-window.approveKnowledgeDraft = async function(id, title, content, source) {
+window.approveKnowledgeDraft = async function(btnElement, id) {
+    const title = btnElement.getAttribute('data-title');
+    const content = btnElement.getAttribute('data-content');
+    const source = btnElement.getAttribute('data-source');
     try {
-        await API.post('/api/knowledge', { entry_id: id, title, content, status: 'active', source: source || 'Manual Entry' });
+        await API.post('/api/knowledge', {
+            entry_id: id,
+            title: title,
+            content: content,
+            status: 'active',
+            source: source || 'Manual Entry'
+        });
         toast('Draft approved', 'success');
         renderKnowledgeBase();
     } catch (err) {
@@ -1996,13 +2008,14 @@ window.handleUploadDoc = async function(e) {
 };
 
 async function deleteKnowledgeEntry(id) {
-    if (!confirm('Are you sure you want to delete this knowledge entry?')) return;
-    try {
-        await API.delete('/api/knowledge/' + id);
-        toast('Deleted successfully', 'success');
-        renderKnowledgeBase();
-    } catch (err) {
-        toast('Failed to delete', 'error');
+    if (confirm('Delete this entry?')) {
+        try {
+            await API.del('/api/knowledge/' + id);
+            toast('Deleted successfully', 'success');
+            renderKnowledgeBase();
+        } catch (err) {
+            toast('Failed to delete', 'error');
+        }
     }
 }
 
@@ -2010,7 +2023,7 @@ async function deleteKnowledgeEntry(id) {
 // ─── Settings View ──────────────────────────────────────────────────────────
 
 async function renderSettings() {
-    const main = document.getElementById('main-content');
+    const main = document.getElementById('view-container');
     main.innerHTML = `
         <div class="page-header"><h2>Settings</h2><p class="page-subtitle">System configuration and account management</p></div>
         <div class="page-body"><div class="loading-overlay"><div class="spinner"></div><span>Loading...</span></div></div>`;
@@ -2181,12 +2194,13 @@ async function connectGmail() {
 }
 
 async function disconnectGmail() {
-    if (!confirm('Disconnect Gmail? Email auto-polling will stop until you reconnect.')) return;
-    try {
-        const result = await API.post('/api/gmail/disconnect');
-        toast(result.message || 'Gmail disconnected', 'success');
-        renderSettings();
-    } catch (err) { toast(err.message, 'error'); }
+    if (confirm('Disconnect Gmail? Email auto-polling will stop until you reconnect.')) {
+        try {
+            const result = await API.post('/api/gmail/disconnect');
+            toast(result.message || 'Gmail disconnected', 'success');
+            renderSettings();
+        } catch (err) { toast(err.message, 'error'); }
+    }
 }
 
 // ─── Auth Handlers ──────────────────────────────────────────────────────────
@@ -2205,14 +2219,14 @@ function showApp(user) {
 
 async function handleRegister(e) {
     e.preventDefault();
-    const errEl = document.getElementById('setup-error');
+    const errorDiv = document.getElementById('setup-error');
     const btn = document.getElementById('setup-btn');
-    errEl.style.display = 'none';
+    errorDiv.style.display = 'none';
     const name = document.getElementById('setup-name').value;
     const email = document.getElementById('setup-email').value;
     const pw = document.getElementById('setup-password').value;
-    const confirm = document.getElementById('setup-confirm').value;
-    if (pw !== confirm) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = ''; return; }
+    const confirmPw = document.getElementById('setup-confirm').value;
+    if (pw !== confirmPw) { errorDiv.textContent = 'Passwords do not match.'; errorDiv.style.display = ''; return; }
     btn.disabled = true; btn.textContent = 'Creating account...';
     try {
         const res = await fetch('/api/auth/register', {

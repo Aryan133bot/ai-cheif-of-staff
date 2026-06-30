@@ -39,7 +39,7 @@ def auto_create_reply_drafts_for_emails(db_path: str, emails, user_id: int) -> i
             is_auto_sent = False
             status = "pending"
 
-            draft_id = db.create_reply_draft(
+            draft = db.create_reply_draft(
                 db_path,
                 {
                     "task_id": task_id,
@@ -57,13 +57,14 @@ def auto_create_reply_drafts_for_emails(db_path: str, emails, user_id: int) -> i
                 },
                 user_id=user_id,
             )
+            draft_id = draft["id"]
             
             if is_auto_send_enabled and auto_send_eligible and confidence > 0.7:
                 try:
                     from reply_sender import send_approved_reply, mark_draft_sent, mark_draft_send_failed
-                    draft = db.get_reply_draft(db_path, draft_id, user_id=user_id)
-                    if draft:
-                        gmail_resp = send_approved_reply(db_path, draft, user_id=user_id)
+                    draft_to_send = db.get_reply_draft(db_path, draft_id, user_id=user_id)
+                    if draft_to_send:
+                        gmail_resp = send_approved_reply(db_path, draft_to_send, user_id=user_id)
                         db.update_reply_draft(db_path, draft_id, {"is_auto_sent": True}, user_id=user_id)
                         mark_draft_sent(db_path, draft_id, gmail_resp, user_id=user_id)
                         logger.info("Auto-sent reply for task %s", task_id)

@@ -58,3 +58,8 @@ class EmailProvider(ABC):
             "configured": self.is_configured(),
             "authenticated": self.is_authenticated(),
         }
+
+    @abstractmethod
+    def send_reply(self, to: str, subject: str, body: str, *, thread_id: str = None, in_reply_to_message_id: str = None) -> dict:
+        """Send a reply email. Returns a dict containing the sent message ID."""
+        ...
