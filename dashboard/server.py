@@ -430,25 +430,21 @@ def update_status(task_id: int, body: StatusUpdate, user: dict = Depends(get_cur
 
 @app.get("/api/briefing")
 def get_daily_briefing(user: dict = Depends(get_current_user)):
-    try:
-        user_id = user["id"]
-        with db.get_db(DB_PATH) as conn:
-            emails = conn.execute(
-                "SELECT * FROM fetched_emails WHERE user_id = ? AND category = 'work' ORDER BY received_at DESC LIMIT 5",
-                (user_id,)
-            ).fetchall()
-            tasks = conn.execute(
-                "SELECT * FROM tasks WHERE user_id = ? AND status = 'pending' AND priority = 'urgent' LIMIT 5",
-                (user_id,)
-            ).fetchall()
-            
-        email_dicts = [dict(e) for e in emails]
-        task_dicts = [dict(t) for t in tasks]
-        briefing_text = generate_daily_briefing(email_dicts, task_dicts)
-        return {"briefing": briefing_text}
-    except Exception as e:
-        import traceback
-        return {"briefing": f"**SYSTEM ERROR IN /api/briefing:**\n```\n{traceback.format_exc()}\n```"}
+    user_id = user["id"]
+    with db.get_db(DB_PATH) as conn:
+        emails = conn.execute(
+            "SELECT * FROM fetched_emails WHERE user_id = ? AND category = 'work' ORDER BY received_at DESC LIMIT 5",
+            (user_id,)
+        ).fetchall()
+        tasks = conn.execute(
+            "SELECT * FROM tasks WHERE user_id = ? AND status = 'pending' AND urgency = 'urgent' LIMIT 5",
+            (user_id,)
+        ).fetchall()
+        
+    email_dicts = [dict(e) for e in emails]
+    task_dicts = [dict(t) for t in tasks]
+    briefing_text = generate_daily_briefing(email_dicts, task_dicts)
+    return {"briefing": briefing_text}
 
 @app.get("/api/stats")
 def dashboard_stats(user: dict = Depends(get_current_user)):
